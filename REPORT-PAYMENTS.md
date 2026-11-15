@@ -23,7 +23,8 @@ Stripe Customer Portal configuration bpc_1UbwWKFn9iiryRd5u9WC5deo was created fo
 - src/routes/planos.tsx, src/lib/payment-api.ts, src/components/auth/AuthPage.tsx, src/components/admin/SubscriptionProvider.tsx, src/lib/subscriptions.ts: signed-in monthly/yearly subscription selection, preserved landing choice through sign-in, upgrade handoff and Growth/Scale collection entitlements.
 - src/routes/client-payment-result.tsx: truthful return page; a browser redirect alone never confirms payment.
 - supabase/migrations/20261115054928_real_billing_connect_xero.sql: private RLS-protected connections, OAuth state, claims, event ledger and subscription binding; only service_role can call payment persistence RPC. No client can write a plan or token through this RPC.
-- scripts/package-payment-functions.mjs, package.json, vite.config.ts: explicit Vercel Nitro output plus separately packaged raw Node APIs; webhook remains a raw byte stream. Existing cron source untouched. .env.example documents server configuration.
+- src/lib/admin-records.functions.ts and src/lib/settings-external.functions.ts: migrate deprecated inputValidator calls to validator without changing schemas.
+- scripts/package-payment-functions.mjs, package.json, vite.config.ts: explicit Vercel Nitro output plus separately packaged raw Node APIs; webhook remains a raw byte stream. Existing cron source untouched. Redundant tsconfig-paths plugin replaced by Vite native resolution. .env.example documents server configuration.
 
 ## Landing companion changes
 
@@ -35,7 +36,7 @@ Both builds passed with zero warnings/errors. App TypeScript passed. Six focused
 
 ## Release blockers and deployment order
 
-The database migration was applied successfully. Read-only verification confirmed that the persistence RPC rejects anon/authenticated execution and permits service_role. This code is held in draft until the remaining configuration and end-to-end RPC/provider paths are tested. The production owner application has NOT been replaced by this branch.
+The database migration was applied successfully. Read-only verification confirmed that the persistence RPC rejects anon/authenticated execution and permits service_role. This code is held in draft until the remaining configuration and end-to-end RPC/provider paths are tested. The production owner application has NOT been replaced by this branch. A Vercel preview reached Ready; /planos and its CSS returned HTTP 200, and both payment APIs rejected GET with HTTP 405. These smoke checks do not validate authenticated payment flows. Vercel also emitted an npm runner warning about its cache-dir environment configuration; application deprecation warnings were corrected in the follow-up commit.
 
 Required remaining environment variables: STRIPE_WEBHOOK_SECRET, STRIPE_CONNECT_CLIENT_ID, XERO_CLIENT_ID, XERO_CLIENT_SECRET. Register https://cleanmaapp.com/api/payment-oauth as redirect URL with Stripe Connect and Xero. Do not rotate PAYMENT_TOKEN_ENCRYPTION_KEY without re-encrypting stored tokens. The server key's Stripe account must match STRIPE_PLATFORM_ACCOUNT_ID (default pinned to the verified connected account).
 

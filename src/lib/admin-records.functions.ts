@@ -53,7 +53,7 @@ export const getAdminRecords = createServerFn({ method: "POST" })
   });
 
 export const addCustomer = createServerFn({ method: "POST" }).middleware([requireSupabaseAuth])
-  .inputValidator(customerSchema).handler(async ({ data, context }) => {
+  .validator(customerSchema).handler(async ({ data, context }) => {
     const companyId = await getOwnerCompanyId(context.supabase, context.userId);
     const result = await context.supabase.from("clients").insert({ ...data, company_id: companyId }).select().single();
     if (result.error) throw new Error(result.error.message);
@@ -61,7 +61,7 @@ export const addCustomer = createServerFn({ method: "POST" }).middleware([requir
   });
 
 export const addStaff = createServerFn({ method: "POST" }).middleware([requireSupabaseAuth])
-  .inputValidator(staffSchema).handler(async ({ data, context }) => {
+  .validator(staffSchema).handler(async ({ data, context }) => {
     const companyId = await getOwnerCompanyId(context.supabase, context.userId);
     const result = await context.supabase.from("staff").insert({ ...data, company_id: companyId }).select().single();
     if (result.error) throw new Error(result.error.message);
@@ -69,7 +69,7 @@ export const addStaff = createServerFn({ method: "POST" }).middleware([requireSu
   });
 
 export const addMaterial = createServerFn({ method: "POST" }).middleware([requireSupabaseAuth])
-  .inputValidator(materialSchema).handler(async ({ data, context }) => {
+  .validator(materialSchema).handler(async ({ data, context }) => {
     const companyId = await getOwnerCompanyId(context.supabase, context.userId);
     const result = await context.supabase.from("materials").insert({ ...data, company_id: companyId }).select().single();
     if (result.error) throw new Error(result.error.message);
@@ -86,7 +86,7 @@ function throwDeleteError(error: { code?: string; message: string }, recordLabel
 }
 
 export const updateCustomer = createServerFn({ method: "POST" }).middleware([requireSupabaseAuth])
-  .inputValidator(z.object({ id: recordIdSchema, data: customerSchema }))
+  .validator(z.object({ id: recordIdSchema, data: customerSchema }))
   .handler(async ({ data, context }) => {
     const companyId = await getOwnerCompanyId(context.supabase, context.userId);
     const result = await context.supabase.from("clients").update(data.data)
@@ -96,7 +96,7 @@ export const updateCustomer = createServerFn({ method: "POST" }).middleware([req
   });
 
 export const deleteCustomer = createServerFn({ method: "POST" }).middleware([requireSupabaseAuth])
-  .inputValidator(z.object({ id: recordIdSchema }))
+  .validator(z.object({ id: recordIdSchema }))
   .handler(async ({ data, context }) => {
     const companyId = await getOwnerCompanyId(context.supabase, context.userId);
     const result = await context.supabase.from("clients").delete()
@@ -107,7 +107,7 @@ export const deleteCustomer = createServerFn({ method: "POST" }).middleware([req
   });
 
 export const updateStaff = createServerFn({ method: "POST" }).middleware([requireSupabaseAuth])
-  .inputValidator(z.object({ id: recordIdSchema, data: staffSchema }))
+  .validator(z.object({ id: recordIdSchema, data: staffSchema }))
   .handler(async ({ data, context }) => {
     const companyId = await getOwnerCompanyId(context.supabase, context.userId);
     const result = await context.supabase.from("staff").update(data.data)
@@ -117,7 +117,7 @@ export const updateStaff = createServerFn({ method: "POST" }).middleware([requir
   });
 
 export const deleteStaff = createServerFn({ method: "POST" }).middleware([requireSupabaseAuth])
-  .inputValidator(z.object({ id: recordIdSchema }))
+  .validator(z.object({ id: recordIdSchema }))
   .handler(async ({ data, context }) => {
     const companyId = await getOwnerCompanyId(context.supabase, context.userId);
     const result = await context.supabase.from("staff").delete()
@@ -128,7 +128,7 @@ export const deleteStaff = createServerFn({ method: "POST" }).middleware([requir
   });
 
 export const updateMaterial = createServerFn({ method: "POST" }).middleware([requireSupabaseAuth])
-  .inputValidator(z.object({ id: recordIdSchema, data: materialSchema }))
+  .validator(z.object({ id: recordIdSchema, data: materialSchema }))
   .handler(async ({ data, context }) => {
     const companyId = await getOwnerCompanyId(context.supabase, context.userId);
     const result = await context.supabase.from("materials").update(data.data)
@@ -138,7 +138,7 @@ export const updateMaterial = createServerFn({ method: "POST" }).middleware([req
   });
 
 export const deleteMaterial = createServerFn({ method: "POST" }).middleware([requireSupabaseAuth])
-  .inputValidator(z.object({ id: recordIdSchema }))
+  .validator(z.object({ id: recordIdSchema }))
   .handler(async ({ data, context }) => {
     const companyId = await getOwnerCompanyId(context.supabase, context.userId);
     const result = await context.supabase.from("materials").delete()
