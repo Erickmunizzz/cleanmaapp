@@ -133,6 +133,7 @@ export type Database = {
           id: string
           name: string
           owner_user_id: string | null
+          stripe_account_id: string | null
           plan: string
         }
         Insert: {
@@ -140,6 +141,7 @@ export type Database = {
           id?: string
           name: string
           owner_user_id?: string | null
+          stripe_account_id?: string | null
           plan?: string
         }
         Update: {
@@ -147,6 +149,7 @@ export type Database = {
           id?: string
           name?: string
           owner_user_id?: string | null
+          stripe_account_id?: string | null
           plan?: string
         }
         Relationships: []
