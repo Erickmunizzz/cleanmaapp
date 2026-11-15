@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LogOut } from "lucide-react";
 import { toast } from "sonner";
 import { adminNav } from "@/lib/admin-nav";
@@ -14,6 +14,7 @@ export function AdminSidebar({ open, onNavigate }: { open: boolean; onNavigate: 
   const session = useAdminSession();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const marketing=useQuery({queryKey:['marketing-access',session?.user.id],enabled:Boolean(session),queryFn:async()=>{const r=await supabase.rpc('marketing_admin_access' as never);return !r.error&&Boolean(r.data);}});
   const initials = account?.name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]?.toUpperCase()).join("") || "—";
   async function signOut() {
     await queryClient.cancelQueries();
@@ -77,6 +78,7 @@ export function AdminSidebar({ open, onNavigate }: { open: boolean; onNavigate: 
             </div>
           </div>
         ))}
+        {marketing.data&&<Link to="/admin/$section" params={{section:'newsletter'}} onClick={onNavigate} className="block rounded-xl px-3 py-2.5 text-sm text-muted-foreground hover:bg-accent">Newsletter subscribers</Link>}
       </nav>
 
       <div className="border-t border-border p-3">

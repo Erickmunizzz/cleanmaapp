@@ -1,3 +1,4 @@
+import {pendingBillingChoice,saveBillingChoice} from '@/lib/billing-choice';
 import {authTimeout} from '@/lib/auth-timeout';
 import {roleDestination} from '@/lib/role-destination';
 import {AuthLegalFooter} from '@/components/legal/LegalDocuments';
@@ -11,6 +12,7 @@ export function AuthPage({role='owner'}:{role?:'owner'|'cleaner'}) {
   const [email, setEmail] = useState("");
   const [remember,setRemember]=useState(true);
   useEffect(()=>{try{setEmail(localStorage.getItem('cleanma:last-email')||'');setRemember(localStorage.getItem('cleanma:remember-email')!=='false')}catch{}},[]);
+  useEffect(()=>{if(role==='owner')pendingBillingChoice();},[role]);
   const [password, setPassword] = useState("");
   const [error,setError]=useState('');
   const [busy, setBusy] = useState(false);
@@ -24,6 +26,8 @@ export function AuthPage({role='owner'}:{role?:'owner'|'cleaner'}) {
     const res = await authTimeout(mode==='signin'?supabase.auth.signInWithPassword({email,password}):supabase.auth.signUp({email,password,options:{emailRedirectTo:window.location.href}}));
     if(res.error){if(res.error.code==='invalid_credentials')throw Error('Email ou senha incorretos');throw res.error;}
     if(!res.data.session){toast.success('Check your email to confirm your account.');return;}
+    const choice=role==='owner'?pendingBillingChoice():null;
+    if(choice){await saveBillingChoice(choice.plan,choice.interval);window.location.replace('/planos');return;}
     const token=new URLSearchParams(location.search).get('invite');
     if(token){const result=await authTimeout(supabase.rpc('accept_staff_invite' as never,{invite_token:token} as never));if(result.error)throw result.error;}
     const {data:profile,error:profileError}=await authTimeout(supabase.from('profiles').select('company_id,is_active').eq('id',res.data.session.user.id).maybeSingle());
