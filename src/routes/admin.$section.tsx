@@ -1,3 +1,4 @@
+import {NewsletterLeads} from '@/components/admin/NewsletterLeads';
 import { createFileRoute } from "@tanstack/react-router";
 import { findAdminNavItem } from "@/lib/admin-nav";
 import { OperationsSection } from "@/components/admin/OperationsSection";
@@ -20,6 +21,7 @@ export const Route = createFileRoute("/admin/$section")({
 
 function SectionPage() {
   const { section } = Route.useParams();
+  if(section==='newsletter')return <NewsletterLeads/>;
   const item = findAdminNavItem(section);
   if (!item) return <h1 className="text-xl font-semibold">Page not found</h1>;
   return <OperationsSection section={section} label={item.label} />;
