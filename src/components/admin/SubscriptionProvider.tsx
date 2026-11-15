@@ -61,11 +61,11 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const request = useMutation({
     mutationFn: async (requestedPlan: string) => {
       if (!companyId) throw new Error("Sign in to your company first.");
-      const result = await supabase.rpc("request_plan_upgrade", { target_company: companyId, requested_plan: requestedPlan });
-      if (result.error) throw new Error(result.error.message);
+      if (!['starter','growth','scale'].includes(requestedPlan)) throw new Error('Contact support for capacity changes.');
+      window.location.assign('/planos?plan='+encodeURIComponent(requestedPlan));
     },
     onSuccess: () => {
-      setConfirmation("Request received. Your current plan remains active while your request is reviewed.");
+      setConfirmation("Opening secure billing. Changes take effect only after Stripe confirms them.");
       refresh();
     },
   });

@@ -6,7 +6,7 @@ export const slackWebhookPattern = /^https:\/\/hooks\.slack\.com\/services\/[A-Z
 
 export const testSettingsSlack = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator(z.object({ companyId: z.string().uuid(), webhook: z.string().max(512).regex(slackWebhookPattern) }))
+  .validator(z.object({ companyId: z.string().uuid(), webhook: z.string().max(512).regex(slackWebhookPattern) }))
   .handler(async ({ data, context }) => {
     const { data: owner, error } = await context.supabase.from("profiles").select("id")
       .eq("id", context.userId).eq("company_id", data.companyId)
@@ -36,7 +36,7 @@ export const testSettingsSlack = createServerFn({ method: "POST" })
 
 export const getSettingsBankHolidays = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .inputValidator(z.enum(["england-and-wales", "scotland", "northern-ireland"]))
+  .validator(z.enum(["england-and-wales", "scotland", "northern-ireland"]))
   .handler(async ({ data }) => {
     const response = await fetch("https://www.gov.uk/bank-holidays.json", {
       signal: AbortSignal.timeout(8000),

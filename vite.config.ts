@@ -6,10 +6,21 @@
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
-export default defineConfig({
+const makeConfig = defineConfig({
+  nitro: { preset: "vercel" },
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
     // nitro/vite builds from this
     server: { entry: "server" },
   },
 });
+
+// Vite 8 resolves tsconfig paths natively; remove the redundant bundled plugin.
+export default async (env: Parameters<typeof makeConfig>[0]) => {
+  const config = await makeConfig(env);
+  config.plugins = (config.plugins ?? []).filter((plugin) =>
+    !plugin || typeof plugin !== "object" || !("name" in plugin) || plugin.name !== "vite-tsconfig-paths"
+  );
+  config.resolve = { ...config.resolve, tsconfigPaths: true };
+  return config;
+};

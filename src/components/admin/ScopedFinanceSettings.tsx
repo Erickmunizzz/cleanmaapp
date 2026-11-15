@@ -1,3 +1,4 @@
+import {PaymentConnections} from "./PaymentConnections";
 import { useState, type FormEvent, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -176,7 +177,6 @@ function WageEditor({ initial, close }: { initial: Wage; close: () => void }) {
 
 function IntegrationEditor({ initial, close }: { initial: Integrations; close: () => void }) {
   const [draft, setDraft] = useState(initial);
-  const [setup, setSetup] = useState<"xero" | "stripe" | null>(null);
   const client = useQueryClient();
   const webhook = draft.slack_webhook_url?.trim() ?? "";
   const test = useMutation({
@@ -198,19 +198,7 @@ function IntegrationEditor({ initial, close }: { initial: Integrations; close: (
   }
   const card = "space-y-3 rounded-xl border border-border bg-card p-4";
   return <form className="space-y-3" onSubmit={event => { event.preventDefault(); save.mutate(); }}>
-    <section className={card}>
-      <div className="flex items-center justify-between gap-3"><h3 className="font-semibold">Xero</h3><span className="text-xs text-muted-foreground">Not connected</span></div>
-      <Button type="button" variant="outline" onClick={() => setSetup("xero")}>Connect</Button>
-      {setup === "xero" && <p role="status" className="text-xs text-muted-foreground">Connection requires a configured Xero OAuth app.</p>}
-      <Toggle label="Sync invoices" value={draft.xero_sync_invoices} change={value => toggle("xero_sync_invoices", value)} />
-    </section>
-    <section className={card}>
-      <div className="flex items-center justify-between gap-3"><h3 className="font-semibold">Faster Payments / Stripe</h3><span className="text-xs text-muted-foreground">Not connected</span></div>
-      <p className="text-sm">1% platform fee</p>
-      <Button type="button" variant="outline" onClick={() => setSetup("stripe")}>Connect</Button>
-      {setup === "stripe" && <p role="status" className="text-xs text-muted-foreground">Connection requires Stripe Connect onboarding configuration.</p>}
-      <Toggle label="Enable payment links + QR" value={draft.stripe_payment_links} change={value => toggle("stripe_payment_links", value)} />
-    </section>
+    <PaymentConnections />
     <section className={card}>
       <h3 className="font-semibold">Slack</h3>
       <Field label="Webhook URL"><Input type="password" autoComplete="off" maxLength={512} value={draft.slack_webhook_url ?? ""}

@@ -16,7 +16,7 @@ export const subscriptionSchema = z.object({
 });
 export type Subscription = z.infer<typeof subscriptionSchema>;
 export function allowsFeature(plan: Subscription["plan"], feature: Feature) {
-  if (feature === "payments" || feature === "integrations") return plan === "scale";
+  if (feature === "integrations") return plan === "scale";
   return plan === "growth" || plan === "scale";
 }
 export async function loadSubscription(companyId: string, month?: string) {

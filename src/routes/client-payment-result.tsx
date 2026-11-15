@@ -1,0 +1,2 @@
+import {createFileRoute} from '@tanstack/react-router';
+export const Route=createFileRoute('/client-payment-result')({component:()=> <main className="mx-auto max-w-xl space-y-4 p-8"><h1 className="text-2xl font-bold">CleanMa payment</h1><p>You have returned from Stripe. Your cleaning company can confirm the payment status in its Stripe account. This page does not independently confirm payment.</p></main>});

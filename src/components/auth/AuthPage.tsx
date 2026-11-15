@@ -32,6 +32,13 @@ export function AuthPage({role='owner'}:{role?:'owner'|'cleaner'}) {
     const destination=await authTimeout(roleDestination());
     if(destination==='/auth')throw Error('Your account does not have an active workspace profile.');
     if((role==='owner'&&['/cleaner','/suspended'].includes(destination))||(role==='cleaner'&&['/admin','/planos'].includes(destination))){throw Error('This account belongs to the other workspace. Please use the correct sign-in page.');}
+    const query=new URLSearchParams(location.search);
+    const plan=query.get('plan');
+    const next=query.get('next');
+    if(role==='owner'&&['/admin','/planos'].includes(destination)){
+      if(plan&&['starter','growth','scale'].includes(plan)){window.location.replace('/planos?plan='+plan+'&interval='+(query.get('interval')==='year'?'year':'month'));return;}
+      if(next&&/^\/planos(?:\?|$)/.test(next)&&!next.includes('\\')){window.location.replace(next);return;}
+    }
     window.location.replace(destination);
     }catch(e){setError(e instanceof Error?e.message:(e as {message?:string}).message||'Unable to sign in. Please try again.');}finally{setBusy(false)}
   }

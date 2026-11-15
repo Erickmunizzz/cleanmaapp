@@ -1,0 +1,2 @@
+import {supabase} from '@/integrations/supabase/client';
+export async function paymentApi<T= {url:string}>(input:Record<string,unknown>):Promise<T>{const {data,error}=await supabase.auth.getSession();if(error||!data.session)throw new Error('Please sign in again.');const r=await fetch('/api/payments',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+data.session.access_token},body:JSON.stringify(input)});const body=await r.json();if(!r.ok)throw new Error(body.error||'Payments unavailable.');return body as T;}

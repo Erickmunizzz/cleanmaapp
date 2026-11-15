@@ -87,6 +87,11 @@ export function SettingsPage() {
     },
   });
   const companyId = companyQuery.data?.id;
+  useEffect(() => {
+    if (companyId && new URLSearchParams(window.location.search).get("finance") === "integrations") {
+      setFinance("integrations");
+    }
+  }, [companyId]);
   const settingsQuery = useQuery({
     queryKey: ["company-settings", companyId],
     enabled: Boolean(companyId),
