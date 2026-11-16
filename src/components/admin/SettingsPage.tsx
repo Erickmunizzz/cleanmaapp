@@ -1,3 +1,4 @@
+import {DemoDataControls} from "./DemoDataControls";
 import { LegalSettingsCard } from "@/components/legal/LegalDocuments";
 import { useSubscription } from "./SubscriptionProvider";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
@@ -184,6 +185,7 @@ export function SettingsPage() {
       <h1 className="text-[26px] font-bold">System Settings</h1>
       <span role="status" className="rounded-full border border-border bg-card px-3 py-1 text-[11px] font-medium text-muted-foreground">{settingsQuery.data ? `Saved · ${formatSavedAt(settingsQuery.data)}` : settingsQuery.isError ? "Settings unavailable" : "Loading settings…"}</span>
     </div>
+    <DemoDataControls />
     {companyQuery.isFetching && <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Loading company details…</p>}
     {companyQuery.isError && <div role="alert" className="flex flex-wrap items-center gap-3 text-sm text-danger"><span>{companyQuery.error.message}</span><Button variant="outline" size="sm" onClick={() => void companyQuery.refetch()}>Try again</Button></div>}
     {settingsQuery.isLoading && <p role="status" className="text-sm text-muted-foreground">Loading workspace settings…</p>}

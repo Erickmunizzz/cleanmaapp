@@ -21,6 +21,7 @@ import { Route as SuspendedRouteImport } from './routes/suspended'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as AdminSectionRouteImport } from './routes/admin.$section'
 import { Route as AdminCustomersRouteImport } from './routes/admin.customers'
+import { Route as AdminDemoRouteImport } from './routes/admin.demo'
 import { Route as AdminEmployeesRouteImport } from './routes/admin.employees'
 import { Route as AdminJobsRouteImport } from './routes/admin.jobs'
 import { Route as AdminLoginRouteImport } from './routes/admin.login'
@@ -89,6 +90,11 @@ const AdminCustomersRoute = AdminCustomersRouteImport.update({
   path: '/customers',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminDemoRoute = AdminDemoRouteImport.update({
+  id: '/demo',
+  path: '/demo',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminEmployeesRoute = AdminEmployeesRouteImport.update({
   id: '/employees',
   path: '/employees',
@@ -137,6 +143,7 @@ export interface FileRoutesByFullPath {
   '/suspended': typeof SuspendedRoute
   '/admin/$section': typeof AdminSectionRoute
   '/admin/customers': typeof AdminCustomersRoute
+  '/admin/demo': typeof AdminDemoRoute
   '/admin/employees': typeof AdminEmployeesRoute
   '/admin/jobs': typeof AdminJobsRoute
   '/admin/login': typeof AdminLoginRoute
@@ -157,6 +164,7 @@ export interface FileRoutesByTo {
   '/suspended': typeof SuspendedRoute
   '/admin/$section': typeof AdminSectionRoute
   '/admin/customers': typeof AdminCustomersRoute
+  '/admin/demo': typeof AdminDemoRoute
   '/admin/employees': typeof AdminEmployeesRoute
   '/admin/jobs': typeof AdminJobsRoute
   '/admin/login': typeof AdminLoginRoute
@@ -179,6 +187,7 @@ export interface FileRoutesById {
   '/suspended': typeof SuspendedRoute
   '/admin/$section': typeof AdminSectionRoute
   '/admin/customers': typeof AdminCustomersRoute
+  '/admin/demo': typeof AdminDemoRoute
   '/admin/employees': typeof AdminEmployeesRoute
   '/admin/jobs': typeof AdminJobsRoute
   '/admin/login': typeof AdminLoginRoute
@@ -202,6 +211,7 @@ export interface FileRouteTypes {
     | '/suspended'
     | '/admin/$section'
     | '/admin/customers'
+    | '/admin/demo'
     | '/admin/employees'
     | '/admin/jobs'
     | '/admin/login'
@@ -222,6 +232,7 @@ export interface FileRouteTypes {
     | '/suspended'
     | '/admin/$section'
     | '/admin/customers'
+    | '/admin/demo'
     | '/admin/employees'
     | '/admin/jobs'
     | '/admin/login'
@@ -243,6 +254,7 @@ export interface FileRouteTypes {
     | '/suspended'
     | '/admin/$section'
     | '/admin/customers'
+    | '/admin/demo'
     | '/admin/employees'
     | '/admin/jobs'
     | '/admin/login'
@@ -352,6 +364,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminCustomersRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/demo': {
+      id: '/admin/demo'
+      path: '/demo'
+      fullPath: '/admin/demo'
+      preLoaderRoute: typeof AdminDemoRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/employees': {
       id: '/admin/employees'
       path: '/employees'
@@ -407,6 +426,7 @@ declare module '@tanstack/react-router' {
 interface AdminRouteChildren {
   AdminSectionRoute: typeof AdminSectionRoute
   AdminCustomersRoute: typeof AdminCustomersRoute
+  AdminDemoRoute: typeof AdminDemoRoute
   AdminEmployeesRoute: typeof AdminEmployeesRoute
   AdminJobsRoute: typeof AdminJobsRoute
   AdminLoginRoute: typeof AdminLoginRoute
@@ -418,6 +438,7 @@ interface AdminRouteChildren {
 const AdminRouteChildren: AdminRouteChildren = {
   AdminSectionRoute: AdminSectionRoute,
   AdminCustomersRoute: AdminCustomersRoute,
+  AdminDemoRoute: AdminDemoRoute,
   AdminEmployeesRoute: AdminEmployeesRoute,
   AdminJobsRoute: AdminJobsRoute,
   AdminLoginRoute: AdminLoginRoute,
