@@ -54,3 +54,19 @@ test('Connection status uses current Stripe flags and does not treat outages as 
  await withExpress({failure:true},async()=>{const rows=await connectionStatus(context);assert.equal(rows[0].status_unavailable,true);assert.equal(rows[0].charges_enabled,undefined)});
 });
 test('Stripe cannot enter the retired OAuth authorisation flow',async()=>assert.rejects(()=>oauthStart(context,'stripe',{}),/INVALID_REQUEST/));
+
+test('integration gate follows server-managed active and trial entitlements without false date or casing blocks',async()=>{
+ const {hasIntegrationAccess}=await import('../server/payments.mjs');
+ const now=Date.parse('2026-11-15T12:00:00Z');
+ for(const plan of ['growth','scale',' GROWTH ',' Scale ']){
+  assert.equal(hasIntegrationAccess({plan,status:'ACTIVE',current_period_end:null},now),true);
+  assert.equal(hasIntegrationAccess({plan,status:'active',current_period_end:'2026-12-01'},now),true);
+  assert.equal(hasIntegrationAccess({plan,status:'active',current_period_end:'2026-11-01'},now),false);
+  assert.equal(hasIntegrationAccess({plan,status:'active',current_period_end:'invalid'},now),false);
+  for(const status of ['past_due','cancelled','inactive'])assert.equal(hasIntegrationAccess({plan,status,current_period_end:null},now),false);
+ }
+ assert.equal(hasIntegrationAccess({plan:'growth',status:'trialing',trial_ends_at:'2026-12-01'},now),true);
+ assert.equal(hasIntegrationAccess({plan:'growth',status:'trialing',trial_ends_at:'2026-11-01'},now),false);
+ assert.equal(hasIntegrationAccess({plan:'starter',status:'active',current_period_end:null},now),false);
+ assert.equal(hasIntegrationAccess(null,now),false);
+});

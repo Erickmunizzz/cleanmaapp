@@ -47,7 +47,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!companyId) return;
     const channel = supabase.channel(`subscription-${companyId}`);
-    for (const table of ["companies", "staff", "jobs", "upgrade_requests"]) {
+    for (const table of ["companies", "subscriptions", "staff", "jobs", "upgrade_requests"]) {
       channel.on("postgres_changes", { event: "*", schema: "public", table }, refresh);
     }
     channel.subscribe();

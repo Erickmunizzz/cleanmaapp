@@ -9,15 +9,17 @@ export const plans = [
 ] as const;
 export type Feature = "payroll" | "recurring" | "reports" | "payments" | "integrations";
 export type Resource = "staff" | "jobs";
+export const normalizePlan = (value: unknown) => typeof value === "string" ? value.trim().toLowerCase() : value;
+export const planSchema = z.preprocess(normalizePlan, z.enum(["trial", "starter", "growth", "scale"]));
 export const subscriptionSchema = z.object({
-  plan: z.enum(["trial", "starter", "growth", "scale"]),
+  plan: planSchema,
   month: z.string(), staffUsed: z.number(), jobsUsed: z.number(),
   staffLimit: z.number(), jobsLimit: z.number(), pendingPlan: z.string().nullable(),
 });
 export type Subscription = z.infer<typeof subscriptionSchema>;
-export function allowsFeature(plan: Subscription["plan"], feature: Feature) {
-  if (feature === "integrations") return plan === "scale";
-  return plan === "growth" || plan === "scale";
+export function allowsFeature(plan: string, _feature: Feature) {
+  const normalized = normalizePlan(plan);
+  return normalized === "growth" || normalized === "scale";
 }
 export async function loadSubscription(companyId: string, month?: string) {
   const { data, error } = await supabase.rpc("subscription_status", {
@@ -25,11 +27,9 @@ export async function loadSubscription(companyId: string, month?: string) {
   });
   if (error) throw new Error(error.message);
   const result=subscriptionSchema.parse(data);
-  const {data:{user}}=await supabase.auth.getUser();
-  if(user?.email?.toLowerCase()==='royyallstore@gmail.com')return {...result,plan:'scale' as const,staffLimit:20,jobsLimit:1000};
   const access=await supabase.rpc('current_subscription_access' as never);
   if(access.error)throw access.error;
-  const entitlement=access.data as unknown as {active:boolean;plan:'starter'|'growth'|'scale'}|null;
+  const entitlement=z.object({active:z.boolean(),plan:planSchema}).nullable().parse(access.data);
   if(!entitlement?.active)throw new Error('Subscription expired. Choose a plan to continue.');
   return {...result,plan:entitlement.plan,staffLimit:entitlement.plan==='scale'?20:entitlement.plan==='growth'?12:5,jobsLimit:entitlement.plan==='scale'?1000:entitlement.plan==='growth'?570:230};
 }
