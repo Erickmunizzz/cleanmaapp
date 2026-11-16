@@ -72,5 +72,12 @@
         }
       ]
     }
+  ],
+  "redirects": [
+    {
+      "source": "/pricing",
+      "destination": "/planos",
+      "permanent": false
+    }
   ]
 }
