@@ -1510,6 +1510,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      cleanma_demo_workspace: { Args: { action: string }; Returns: Json }
       subscription_status: { Args: { target_company: string; target_month?: string }; Returns: Json }
       request_plan_upgrade: { Args: { target_company: string; requested_plan: string }; Returns: string }
 

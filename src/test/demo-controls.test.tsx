@@ -1,0 +1,40 @@
+import {fireEvent,render,screen,waitFor,cleanup} from '@testing-library/react';
+import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
+import {afterEach,describe,it,expect,vi} from 'vitest';
+import type {DemoWorkspace} from '@/lib/data/demo-workspace';
+import {DemoWorkspacePage} from '@/components/admin/DemoWorkspacePage';
+const mocks=vi.hoisted(()=>({call:vi.fn()}));
+vi.mock('@/lib/demo-workspace',()=>({demoWorkspace:(action:string)=>mocks.call(action)}));
+vi.mock('@/components/admin/AdminSession',()=>({useAdminSession:()=>({user:{id:'00000000-0000-4000-8000-000000000001'}})}));
+const id='00000000-0000-4000-8000-000000000001';
+const fixture:DemoWorkspace={company:{id,owner_id:id,name:'BrightSpark Cleaning Services',is_demo:true,demo_date:'2026-11-16'},records:[{id,key:'sarah',kind:'cleaner',is_demo:true,data:{name:'Sarah Jenkins',role:'Senior Cleaner',status:'Present'}}]};
+afterEach(cleanup);
+describe('Demo recording controls',()=>{
+ it('generates only on click, persists cleaner clock actions and clears the demo',async()=>{
+  let stored:DemoWorkspace|null=null;
+  mocks.call.mockImplementation(async(action:string)=>{
+   if(action==='generate')stored=structuredClone(fixture);
+   if(action==='clear')stored=null;
+   if(action==='clock_in'&&stored)stored={...stored,records:[...stored.records,{id,key:'open-clock',kind:'time_entry',is_demo:true,data:{cleaner_key:'sarah',date:'2026-11-16',clock_in:'08:00',clock_out:null}}]};
+   if(action==='clock_out'&&stored)stored={...stored,records:stored.records.map(row=>row.kind==='time_entry'?{...row,data:{...row.data,clock_out:'16:00'}}:row)};
+   return stored;
+  });
+  const client=new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}});
+  render(<QueryClientProvider client={client}><DemoWorkspacePage/></QueryClientProvider>);
+  const generate=await screen.findByRole('button',{name:'Generate Demo Data'});
+  await waitFor(()=>expect(generate).not.toBeDisabled());
+  expect(mocks.call.mock.calls.every(([action])=>action==='read')).toBe(true);
+  fireEvent.click(generate);
+  await screen.findByRole('heading',{name:'BrightSpark Cleaning Services'});
+  fireEvent.click(screen.getByRole('button',{name:'Preview Sarah’s App'}));
+  fireEvent.click(screen.getByRole('button',{name:'Clock In'}));
+  const clockOut=await screen.findByRole('button',{name:'Clock Out'});
+  fireEvent.click(clockOut);
+  await screen.findByRole('button',{name:'Clock In'});
+  expect(mocks.call).toHaveBeenCalledWith('clock_in');
+  expect(mocks.call).toHaveBeenCalledWith('clock_out');
+  fireEvent.click(screen.getByRole('button',{name:'Clear Demo Data'}));
+  await waitFor(()=>expect(screen.queryByRole('heading',{name:'BrightSpark Cleaning Services'})).not.toBeInTheDocument());
+  expect(stored).toBeNull();
+ });
+});
