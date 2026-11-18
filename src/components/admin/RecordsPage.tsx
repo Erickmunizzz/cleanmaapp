@@ -94,10 +94,6 @@ function RecordsContent({ kind, search, onSearch, archived, navigation }: Record
       }
       if (kind === "staff") {
         if (!editingId && !await subscription.requireCapacity("staff")) throw new Error(LIMIT_MESSAGE);
-        if (!email.trim() && !phone.trim()) throw new Error("Enter an email or mobile number.");
-        if (!email.trim() && !/^\+[1-9]\d{7,14}$/.test(phone.replace(/[\s()-]/g, ""))) {
-          throw new Error("Enter the mobile number in international format, such as +447700900000.");
-        }
         const payload = { name, email, phone,
           hourly_rate: form["hourly_rate"] ? Number(form["hourly_rate"]) : null,
           assigned_client_id: form["assigned_client_id"] || null,
@@ -107,8 +103,7 @@ function RecordsContent({ kind, search, onSearch, archived, navigation }: Record
         if (!employee.profile_id) {
           try {
             const result = await inviteEmployee(employee.id);
-            if (result.status === "email_unconfigured") toast.info("Email delivery needs setup. You can share the invitation by SMS or WhatsApp.");
-            if (result.status === "share_required") toast.info("Login created. Share the invitation by SMS or WhatsApp.");
+            if (result.status === "email_unconfigured") toast.info("Invitation pending. Configure Resend to send invitation emails.");
             if (result.status === "sent") toast.success("Employee invitation emailed.");
           } catch (error) {
             toast.error(error instanceof Error ? error.message : "Invitation failed. Retry from Employees.");
@@ -202,7 +197,7 @@ function RecordsContent({ kind, search, onSearch, archived, navigation }: Record
       <DialogContent className="max-h-[85dvh] w-[calc(100%-2rem)] overflow-y-auto rounded-xl bg-card">
         <DialogHeader><DialogTitle>{editingId ? `Edit ${configItem.singular}` : `Add ${configItem.singular}`}</DialogTitle><DialogDescription className="sr-only">{configItem.singular} details</DialogDescription></DialogHeader>
         <form className="space-y-4" onSubmit={event => { event.preventDefault(); save.mutate(); }}>
-          {configItem.fields.map(field => <div key={field} className="space-y-2"><Label htmlFor={`record-${field}`} className="capitalize">{field === "weekly_hours" ? "Weekly hours" : field === "hourly_rate" ? "Hourly rate (£)" : kind === "staff" && field === "name" ? "Full name" : field}{field === "name" && " *"}</Label><Input id={`record-${field}`} type={field === "email" ? "email" : field === "quantity" || field === "weekly_hours" || field === "hourly_rate" ? "number" : field === "phone" ? "tel" : "text"} min={field === "quantity" || field === "weekly_hours" || field === "hourly_rate" ? 0 : undefined} max={field === "weekly_hours" ? 168 : undefined} step={field === "weekly_hours" || field === "hourly_rate" ? "0.01" : field === "quantity" ? "any" : undefined} required={field === "name" || field === "quantity"} value={form[field] ?? (field === "quantity" ? "0" : "")} onChange={event => setForm(previous => ({ ...previous, [field]: event.target.value }))} className="rounded-xl" /></div>)}
+          {configItem.fields.map(field => <div key={field} className="space-y-2"><Label htmlFor={`record-${field}`} className="capitalize">{field === "weekly_hours" ? "Weekly hours" : field === "hourly_rate" ? "Hourly rate (£)" : kind === "staff" && field === "name" ? "Full name" : field}{field === "name" && " *"}</Label><Input id={`record-${field}`} type={field === "email" ? "email" : field === "quantity" || field === "weekly_hours" || field === "hourly_rate" ? "number" : field === "phone" ? "tel" : "text"} min={field === "quantity" || field === "weekly_hours" || field === "hourly_rate" ? 0 : undefined} max={field === "weekly_hours" ? 168 : undefined} step={field === "weekly_hours" || field === "hourly_rate" ? "0.01" : field === "quantity" ? "any" : undefined} required={field === "name" || field === "quantity" || (kind === "staff" && field === "email")} value={form[field] ?? (field === "quantity" ? "0" : "")} onChange={event => setForm(previous => ({ ...previous, [field]: event.target.value }))} className="rounded-xl" /></div>)}
           {kind === "staff" && <div className="space-y-2">
             <Label htmlFor="record-assignment">Assigned client site</Label>
             <select id="record-assignment" value={form["assigned_client_id"] ?? ""}

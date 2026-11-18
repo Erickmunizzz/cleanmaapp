@@ -6,7 +6,7 @@ const contact = {
   phone: z.string().trim().max(100).transform(v => v || null),
 };
 export const customerSchema = z.object({ ...contact, address: z.string().trim().max(1000).transform(v => v || null) });
-export const staffSchema = z.object({ ...contact, hourly_rate: z.number().min(0).max(99999999.99).nullable().optional(), assigned_client_id: z.string().uuid().nullable().optional(), weekly_hours: z.number().min(0).max(168).nullable().optional(), role: z.string().trim().max(100).transform(v => v || null), profile_id: z.union([z.string().uuid(), z.literal("")]).default("").transform(v => v || null) }).transform(({ weekly_hours, hourly_rate, assigned_client_id, ...staff }) => ({
+export const staffSchema = z.object({ ...contact, email: z.string().trim().email("Enter a valid employee email address").toLowerCase(), hourly_rate: z.number().min(0).max(99999999.99).nullable().optional(), assigned_client_id: z.string().uuid().nullable().optional(), weekly_hours: z.number().min(0).max(168).nullable().optional(), role: z.string().trim().max(100).transform(v => v || null), profile_id: z.union([z.string().uuid(), z.literal("")]).default("").transform(v => v || null) }).transform(({ weekly_hours, hourly_rate, assigned_client_id, ...staff }) => ({
   ...staff,
   ...(weekly_hours === undefined ? {} : { weekly_hours }),
   ...(hourly_rate === undefined ? {} : { hourly_rate }),
