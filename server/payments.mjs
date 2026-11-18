@@ -68,6 +68,15 @@ const stripeCookieOptions='HttpOnly; Secure; SameSite=Lax; Path='+stripeCallback
 
 export async function stripeOAuthStart(ctx,res){
  await paid(ctx.company);
+ const clientId=process.env.STRIPE_CLIENT_ID?.trim()||process.env.NEXT_PUBLIC_STRIPE_CLIENT_ID?.trim();
+ if(!clientId){
+  console.error('[Stripe Connect] Missing STRIPE_CLIENT_ID (or NEXT_PUBLIC_STRIPE_CLIENT_ID) in the runtime environment.');
+  throw new Error('STRIPE_CLIENT_ID_MISSING');
+ }
+ if(!/^ca_[A-Za-z0-9]+$/.test(clientId)){
+  console.error('[Stripe Connect] The configured Client ID must start with ca_ and contain only letters and digits after the prefix.');
+  throw new Error('STRIPE_CLIENT_ID_INVALID');
+ }
  await platform();
  const state=randomBytes(32).toString('hex');
  await db('state',{hash:digest(state),company:ctx.company,user:ctx.user.id,provider:'stripe'});
@@ -75,7 +84,7 @@ export async function stripeOAuthStart(ctx,res){
  const url=new URL('https://connect.stripe.com/oauth/authorize');
  url.search=new URLSearchParams({
   response_type:'code',
-  client_id:process.env.STRIPE_CLIENT_ID||'ca_U3NMzRFZ5hDElPwbz7d2A1IluzVlhsr8',
+  client_id:clientId,
   scope:'read_write',
   redirect_uri:origin+stripeCallbackPath,
   state,

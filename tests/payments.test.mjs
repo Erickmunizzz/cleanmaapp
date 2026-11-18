@@ -8,7 +8,10 @@ test('Starter cannot bypass Growth/Scale gate by calling API logic',async()=>{co
 test('subscription price tampering fails before provider access',async()=>{await assert.rejects(()=>checkout(context,{plan:'starter',interval:'month',amount:1}),/INVALID_REQUEST/)});
 test('OAuth callback requires matching browser state cookie',async()=>{await assert.rejects(()=>oauthCallback({url:'/api/payment-oauth?state='+ 'a'.repeat(64)+'&code=x',headers:{}},{}),/INVALID_OAUTH_STATE/)});
 
-test('Stripe Standard URL uses the fallback client and stores an owner-bound state', async t => {
+test('Stripe Standard URL uses the configured client and stores an owner-bound state', async t => {
+ const original=process.env.STRIPE_CLIENT_ID;
+ t.after(()=>{if(original===undefined)delete process.env.STRIPE_CLIENT_ID;else process.env.STRIPE_CLIENT_ID=original;});
+ process.env.STRIPE_CLIENT_ID='  ca_ConfiguredClient123  ';
  const calls=[];
  t.mock.method(global,'fetch',async (url,init)=>{
   if(url.endsWith('/account'))return Response.json({id:'acct_1T56IvFn9iiryRd5'});
@@ -20,13 +23,29 @@ test('Stripe Standard URL uses the fallback client and stores an owner-bound sta
  const {url}=await stripeOAuthStart(context,{setHeader:(name,value)=>{headers[name]=value;}});
  const consent=new URL(url);
  assert.equal(consent.origin+consent.pathname,'https://connect.stripe.com/oauth/authorize');
- assert.equal(consent.searchParams.get('client_id'),'ca_U3NMzRFZ5hDElPwbz7d2A1IluzVlhsr8');
+ assert.equal(consent.searchParams.get('client_id'),'ca_ConfiguredClient123');
  assert.equal(consent.searchParams.get('scope'),'read_write');
  assert.equal(consent.searchParams.get('redirect_uri'),'https://cleanmaapp.com/api/stripe/connect/callback');
  assert.match(headers['Set-Cookie'],new RegExp('^cleanma_stripe_oauth='+consent.searchParams.get('state')));
  assert.equal(calls[1].payload.company,context.company);
  assert.equal(calls[1].payload.user,context.user.id);
  assert.equal(calls[1].payload.provider,'stripe');
+});
+
+test('Stripe rejects missing or malformed Client IDs before contacting Stripe', async t => {
+ const originals={STRIPE_CLIENT_ID:process.env.STRIPE_CLIENT_ID,NEXT_PUBLIC_STRIPE_CLIENT_ID:process.env.NEXT_PUBLIC_STRIPE_CLIENT_ID};
+ t.after(()=>{for(const [key,value] of Object.entries(originals)){if(value===undefined)delete process.env[key];else process.env[key]=value;}});
+ delete process.env.NEXT_PUBLIC_STRIPE_CLIENT_ID;
+ const log=t.mock.method(console,'error',()=>{});
+ t.mock.method(global,'fetch',async url=>{
+  assert.ok(url.endsWith('/cleanma_payment_store'));
+  return Response.json({plan:'growth',status:'active',current_period_end:null});
+ });
+ process.env.STRIPE_CLIENT_ID='  ';
+ await assert.rejects(()=>stripeOAuthStart(context,{}),/STRIPE_CLIENT_ID_MISSING/);
+ process.env.STRIPE_CLIENT_ID='not-a-connect-id';
+ await assert.rejects(()=>stripeOAuthStart(context,{}),/STRIPE_CLIENT_ID_INVALID/);
+ assert.equal(log.mock.callCount(),2);
 });
 
 test('Stripe callback exchanges the code once and binds the Standard account to the stored owner', async t => {

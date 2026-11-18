@@ -12,6 +12,8 @@ type Connection = {
   status_unavailable?: boolean;
 };
 const messages: Record<string, string> = {
+  STRIPE_CLIENT_ID_MISSING: 'Stripe Connect is missing its Client ID. Set STRIPE_CLIENT_ID in Vercel and redeploy.',
+  STRIPE_CLIENT_ID_INVALID: 'Stripe Connect Client ID is invalid. Copy the Connect Client ID (ca_…) from Stripe into STRIPE_CLIENT_ID in Vercel and redeploy.',
   STRIPE_ACCOUNT_MISMATCH: 'This account could not be verified. Select your Stripe Standard account and try again.',
   STRIPE_ACCOUNT_NOT_READY: 'Complete your Stripe onboarding before accepting payments.',
 };
