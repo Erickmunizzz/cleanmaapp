@@ -33,7 +33,7 @@ export async function oauthStart(ctx,provider,res){
  await db('state',{hash:digest(state),company:ctx.company,user:ctx.user.id,provider});
  res.setHeader('Set-Cookie',`cleanma_oauth=${state}; HttpOnly; Secure; SameSite=Lax; Max-Age=600; Path=/api/xero/callback`);
  const u=new URL('https://login.xero.com/identity/connect/authorize');
- u.search=new URLSearchParams({response_type:'code',client_id:client,redirect_uri:origin+'/api/xero/callback',scope:'openid profile email offline_access accounting.transactions accounting.contacts accounting.settings',state}).toString();
+ u.search=new URLSearchParams({response_type:'code',client_id:client,redirect_uri:origin+'/api/xero/callback',scope:'openid offline_access accounting.invoices.read accounting.contacts.read',state}).toString();
  return {url:u.href};
 }
 export async function oauthCallback(req,res){
@@ -57,15 +57,38 @@ export function expressStore(action,ctx,extra={}){
 function assertExpressAccount(account,ctx){
  if(account.type!=='express'||account.country!=='GB'||account.metadata?.company_id!==ctx.company||account.metadata?.app!=='cleanma')throw new Error('STRIPE_ACCOUNT_MISMATCH');
 }
+async function findCompanyExpressAccount(ctx) {
+ let cursor;
+ let match;
+ do {
+  const query = new URLSearchParams({limit:'100'});
+  if(cursor)query.set('starting_after',cursor);
+  const page = await stripe('accounts?'+query);
+  if(!Array.isArray(page?.data)||typeof page.has_more!=='boolean')throw new Error('STRIPE_SETUP_NEEDS_REVIEW');
+  for(const account of page.data) {
+   if(account.metadata?.app!=='cleanma'||account.metadata?.company_id!==ctx.company)continue;
+   if(match)throw new Error('STRIPE_SETUP_NEEDS_REVIEW');
+   assertExpressAccount(account,ctx);
+   match=account;
+  }
+  const nextCursor=page.has_more?page.data.at(-1)?.id:null;
+  if(page.has_more&&(!nextCursor||nextCursor===cursor))throw new Error('STRIPE_SETUP_NEEDS_REVIEW');
+  cursor=nextCursor;
+ } while(cursor);
+ return match;
+}
 export async function expressOnboarding(ctx){
  await paid(ctx.company);await platform();
  const saved=await expressStore('begin',ctx);
  let account;
  if(saved.stripe_account_id){account=await stripe('accounts/'+saved.stripe_account_id);assertExpressAccount(account,ctx);}
  else{
-  // Stripe prunes idempotency keys after 24h. Never silently create another account after that window.
-  if(!Number.isFinite(Date.parse(saved.created_at))||Date.now()-Date.parse(saved.created_at)>23*60*60*1000)throw new Error('STRIPE_SETUP_NEEDS_REVIEW');
-  account=await stripe('accounts',{type:'express',country:'GB','capabilities[card_payments][requested]':'true','capabilities[transfers][requested]':'true','metadata[company_id]':ctx.company,'metadata[app]':'cleanma'},undefined,'cleanma-express-'+saved.provision_id);
+  const startedAt=Date.parse(saved.created_at);
+  if(!Number.isFinite(startedAt)||!saved.provision_id)throw new Error('STRIPE_SETUP_NEEDS_REVIEW');
+  // Stripe can expire the idempotency key. Reconcile with Stripe before retrying
+  // an old provision in case account creation succeeded and the DB save failed.
+  if(Date.now()-startedAt>=23*60*60*1000)account=await findCompanyExpressAccount(ctx);
+  account??=await stripe('accounts',{type:'express',country:'GB','capabilities[card_payments][requested]':'true','capabilities[transfers][requested]':'true','metadata[company_id]':ctx.company,'metadata[app]':'cleanma'},undefined,'cleanma-express-'+saved.provision_id);
   assertExpressAccount(account,ctx);
   await expressStore('save',ctx,{provision_id:saved.provision_id,account_id:account.id});
  }

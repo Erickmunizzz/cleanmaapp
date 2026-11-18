@@ -21,6 +21,12 @@ function expressFetch(options={}) {
    if(action==='save'){assert.equal(payload.company,context.company);assert.equal(payload.account_id,account.id);return Response.json({});}
   }
   if(url.endsWith('/account'))return Response.json({id:'acct_1T56IvFn9iiryRd5'});
+  if(url.includes('/accounts?')){
+   if(options.listUnavailable)return Response.json({}, {status:503});
+   const cursor=new URL(url).searchParams.get('starting_after');
+   if(options.orphan&&!cursor)return Response.json({data:[{id:'acct_unrelated'}],has_more:true});
+   return Response.json({data:options.orphan?[account]:[],has_more:false});
+  }
   if(url.endsWith('/account_links'))return Response.json({url:'https://connect.stripe.com/setup/test-only'});
   if(url.endsWith('/login_links'))return Response.json({url:'https://connect.stripe.com/express/test-only'});
   if(options.failure)return Response.json({}, {status:503});
@@ -43,7 +49,23 @@ test('Express first click creates a GB account with both capabilities and durabl
  })}finally{process.env.PAYMENT_TOKEN_ENCRYPTION_KEY=Buffer.alloc(32,7).toString('base64')}
 });
 test('Express retry reuses company account and generates a fresh onboarding link',async()=>withExpress({},async calls=>{await expressOnboarding(context);assert.equal(calls.some(c=>c.url.endsWith('/accounts')),false);assert.ok(calls.some(c=>c.url.endsWith('/account_links')))}));
-test('Expired unbound provision stops before creating a second account',async()=>withExpress({fresh:true,stale:true},async calls=>{await assert.rejects(()=>expressOnboarding(context),/STRIPE_SETUP_NEEDS_REVIEW/);assert.equal(calls.some(c=>c.url.endsWith('/accounts')),false)}));
+test('Expired provision resumes an orphaned Express account from a later Stripe page',async()=>withExpress({fresh:true,stale:true,orphan:true},async calls=>{
+ await expressOnboarding(context);
+ assert.ok(calls.some(c=>c.url.includes('starting_after=acct_unrelated')));
+ assert.equal(calls.some(c=>c.url.endsWith('/accounts')),false);
+ assert.ok(calls.some(c=>c.url.endsWith('/account_links')));
+}));
+test('Expired provision can retry creation after Stripe confirms no account exists',async()=>withExpress({fresh:true,stale:true},async calls=>{
+ await expressOnboarding(context);
+ const list=calls.findIndex(c=>c.url.includes('/accounts?'));
+ const create=calls.findIndex(c=>c.url.endsWith('/accounts'));
+ assert.ok(list>=0&&create>list);
+ assert.equal(calls[create].init.headers['Idempotency-Key'],'cleanma-express-stable-provision');
+}));
+test('Failed reconciliation cannot create a second account',async()=>withExpress({fresh:true,stale:true,listUnavailable:true},async calls=>{
+ await assert.rejects(()=>expressOnboarding(context),/PROVIDER_REQUEST_FAILED/);
+ assert.equal(calls.some(c=>c.url.endsWith('/accounts')),false);
+}));
 test('Express Dashboard is generated server-side only for ready company account',async()=>withExpress({},async calls=>{await expressDashboard(context);const call=calls.at(-1);assert.equal(call.url,'https://api.stripe.com/v1/accounts/acct_cleaner/login_links');assert.equal(call.init.method,'POST')}));
 test('Incomplete or foreign Express accounts cannot open dashboard or collect payments',async()=>{
  await withExpress({ready:false},async calls=>{await assert.rejects(()=>expressDashboard(context),/STRIPE_ACCOUNT_NOT_READY/);assert.equal(calls.some(c=>c.url.endsWith('/login_links')),false)});
@@ -100,4 +122,17 @@ test('Xero callback saves both encrypted tokens for the owner who started consen
   const credentials = unseal(saved.ciphertext);
   assert.equal(credentials.access_token, tokens.access_token);
   assert.equal(credentials.refresh_token, tokens.refresh_token);
+});
+
+test('Xero consent uses granular read scopes and requests a refresh token', async t => {
+ process.env.XERO_CLIENT_ID='test-client';
+ process.env.XERO_CLIENT_SECRET='test-secret';
+ t.mock.method(global,'fetch',async (_url,init)=>{
+  const {action}=JSON.parse(init.body);
+  return Response.json(action==='subscription'?{plan:'growth',status:'active',current_period_end:'2099-01-01'}:{});
+ });
+ const {url}=await oauthStart(context,'xero',{setHeader() {}});
+ const params=new URL(url).searchParams;
+ assert.equal(params.get('scope'),'openid offline_access accounting.invoices.read accounting.contacts.read');
+ assert.equal(params.get('redirect_uri'),'https://cleanmaapp.com/api/xero/callback');
 });
