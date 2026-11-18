@@ -7,7 +7,7 @@ describe("Directory records", () => {
     expect(customerSchema.parse({ name: "Oak Office", email: "office@example.invalid", phone: "", address: "" })).toEqual({ name: "Oak Office", email: "office@example.invalid", phone: null, address: null });
   });
   it("accepts a staff member with the Cleaner role", () => {
-    expect(staffSchema.parse({ name: "Alex Morgan", role: "Cleaner", email: "", phone: "" }).role).toBe("Cleaner");
+    expect(staffSchema.parse({ name: "Alex Morgan", role: "Cleaner", email: "cleaner@example.invalid", phone: "" }).role).toBe("Cleaner");
   });
   it("preserves a numeric material quantity and unit", () => {
     expect(materialSchema.parse({ name: "Floor cleaner", quantity: 2.5, unit: "litres" })).toEqual({ name: "Floor cleaner", quantity: 2.5, unit: "litres" });
