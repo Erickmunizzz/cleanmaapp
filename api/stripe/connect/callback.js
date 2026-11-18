@@ -1,11 +1,15 @@
-import {json, origin} from '../../../server/payments.mjs';
+import {json, origin, stripeOAuthCallback} from '../../../server/payments.mjs';
 
-export default function handler(req, res) {
+export default async function handler(req, res) {
   if (req.method !== 'GET') return json(res, 405, {error: 'Method not allowed'});
-  // Hosted Express onboarding returns without credentials. Settings reloads the
-  // authenticated company's account from Stripe before displaying readiness.
   res.setHeader('Cache-Control', 'no-store');
-  res.setHeader('Location', origin + '/admin/settings?finance=integrations&integration=stripe_return');
+  let result = 'stripe_return';
+  try {
+    await stripeOAuthCallback(req, res);
+  } catch (error) {
+    result = error.message === 'OAUTH_CANCELLED' ? 'stripe_cancelled' : 'stripe_failed';
+  }
+  res.setHeader('Location', origin + '/admin/settings?finance=integrations&integration=' + result);
   res.statusCode = 303;
-  res.end();
+  return res.end();
 }

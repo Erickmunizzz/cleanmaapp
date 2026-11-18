@@ -6,7 +6,7 @@ export async function request(url,init={}){const r=await fetch(url,{...init,redi
 export function db(action,payload={}){return request(env('SUPABASE_URL')+'/rest/v1/rpc/cleanma_payment_store',{method:'POST',headers:{apikey:env('SUPABASE_SERVICE_ROLE_KEY'),Authorization:'Bearer '+env('SUPABASE_SERVICE_ROLE_KEY'),'Content-Type':'application/json'},body:JSON.stringify({action,payload})});}
 export async function owner(req){const token=req.headers.authorization;if(!/^Bearer [\w.-]+$/.test(token||''))throw new Error('UNAUTHORISED');const headers={apikey:env('SUPABASE_ANON_KEY'),Authorization:token};const user=await request(env('SUPABASE_URL')+'/auth/v1/user',{headers});const rows=await request(env('SUPABASE_URL')+'/rest/v1/profiles?select=id,company_id,role,is_active&id=eq.'+encodeURIComponent(user.id),{headers});const profile=rows[0];if(!profile||profile.role!=='owner'||!profile.is_active||!profile.company_id)throw new Error('OWNER_REQUIRED');return {user,company:profile.company_id};}
 export async function stripe(path,data,account,idempotency){const headers={Authorization:'Bearer '+env('STRIPE_SECRET_KEY'),'Stripe-Version':'2026-08-26.dahlia'};if(account)headers['Stripe-Account']=account;if(idempotency)headers['Idempotency-Key']=idempotency;let init={headers};if(data){headers['Content-Type']='application/x-www-form-urlencoded';init={method:'POST',headers,body:new URLSearchParams(data)};}return request('https://api.stripe.com/v1/'+path,init);}
-export async function platform(){const a=await stripe('account');if(a.id!==(process.env.STRIPE_PLATFORM_ACCOUNT_ID||'acct_1T56IvFn9iiryRd5'))throw new Error('WRONG_PLATFORM_ACCOUNT');}
+export async function platform(){const a=await stripe('account');if(a.id!==(process.env.STRIPE_PLATFORM_ACCOUNT_ID||'acct_1T56IvFn9iiryRd5'))throw new Error('WRONG_PLATFORM_ACCOUNT');return a;}
 export function seal(data){const key=Buffer.from(env('PAYMENT_TOKEN_ENCRYPTION_KEY'),'base64');if(key.length!==32)throw new Error('CONFIGURATION_REQUIRED');const iv=randomBytes(12),cipher=createCipheriv('aes-256-gcm',key,iv);const body=Buffer.concat([cipher.update(JSON.stringify(data),'utf8'),cipher.final()]);return Buffer.concat([iv,cipher.getAuthTag(),body]).toString('base64');}
 export function unseal(s){const bytes=Buffer.from(s,'base64'),dec=createDecipheriv('aes-256-gcm',Buffer.from(env('PAYMENT_TOKEN_ENCRYPTION_KEY'),'base64'),bytes.subarray(0,12));dec.setAuthTag(bytes.subarray(12,28));return JSON.parse(Buffer.concat([dec.update(bytes.subarray(28)),dec.final()]).toString());}
 export const digest=s=>createHash('sha256').update(s).digest('hex');
@@ -23,8 +23,8 @@ export function hasIntegrationAccess(subscription, now=Date.now()) {
 export async function paid(company){const subscription=await db('subscription',{company});if(!hasIntegrationAccess(subscription))throw new Error('GROWTH_OR_SCALE_REQUIRED');}
 export async function checkout(ctx,input){const price=catalog[input.plan]?.[input.interval];if(!price||['amount','price','price_id','currency','company_id','user_id'].some(k=>k in input))throw new Error('INVALID_REQUEST');await platform();const p=await stripe('prices/'+price[0]);if(!p.active||p.currency!=='gbp'||p.unit_amount!==price[1]||p.recurring?.interval!==input.interval||p.recurring?.interval_count!==1)throw new Error('INVALID_PRICE');const existing=await db('binding',{company:ctx.company});if(existing&&['active','past_due'].includes(existing.status)){if(!process.env.STRIPE_BILLING_PORTAL_CONFIG)throw new Error('CONFIGURATION_REQUIRED');return {url:(await stripe('billing_portal/sessions',{customer:existing.customer_id,return_url:origin+'/planos',...(process.env.STRIPE_BILLING_PORTAL_CONFIG?{configuration:process.env.STRIPE_BILLING_PORTAL_CONFIG}:{})})).url};}const claim=await db('claim',{company:ctx.company,user:ctx.user.id,plan:input.plan,interval:input.interval,price:price[0]});
 const metadata={user_id:ctx.user.id,company_id:ctx.company,email:ctx.user.email,plan_tier:input.plan,claim_id:claim.id};const data={mode:'subscription',currency:'gbp','line_items[0][price]':price[0],'line_items[0][quantity]':'1',customer_email:ctx.user.email,client_reference_id:claim.id,success_url:origin+'/planos?checkout=returned',cancel_url:origin+'/planos',};for(const [k,v]of Object.entries(metadata)){data[`metadata[${k}]`]=v;data[`subscription_data[metadata][${k}]`]=v;}const session=await stripe('checkout/sessions',data,undefined,'cleanma-sub-'+claim.id);return {url:session.url};}
-export async function quickLink(ctx,input){await paid(ctx.company);if(input.gateway!=='stripe')throw new Error('GATEWAY_NOT_CONFIGURED');if(!Number.isInteger(input.amount)||input.amount<100||input.amount>100000000||typeof input.description!=='string'||!input.description.trim()||input.description.length>200||!/^[0-9a-f-]{36}$/i.test(input.request_id||''))throw new Error('INVALID_REQUEST');await platform();const connection=await expressStore('get',ctx);if(!connection?.stripe_account_id)throw new Error('CONNECT_STRIPE_FIRST');const account=await stripe('accounts/'+connection.stripe_account_id);assertExpressAccount(account,ctx);if(!account.charges_enabled||!account.details_submitted)throw new Error('STRIPE_ACCOUNT_NOT_READY');const fee=Math.round(input.amount/100);const session=await stripe('checkout/sessions',{mode:'payment',currency:'gbp','payment_method_types[0]':'card','line_items[0][price_data][currency]':'gbp','line_items[0][price_data][unit_amount]':String(input.amount),'line_items[0][price_data][product_data][name]':input.description.trim(),'line_items[0][quantity]':'1','payment_intent_data[application_fee_amount]':String(fee),'metadata[company_id]':ctx.company,'metadata[user_id]':ctx.user.id,success_url:origin+'/client-payment-result?status=returned',cancel_url:origin+'/client-payment-result?status=cancelled'},connection.stripe_account_id,'cleanma-charge-'+ctx.company+'-'+input.request_id);return {url:session.url,application_fee_amount:fee};}
-// Stripe Connect uses only the platform secret key; OAuth remains Xero-only.
+export async function quickLink(ctx,input){await paid(ctx.company);if(input.gateway!=='stripe')throw new Error('GATEWAY_NOT_CONFIGURED');if(!Number.isInteger(input.amount)||input.amount<100||input.amount>100000000||typeof input.description!=='string'||!input.description.trim()||input.description.length>200||!/^[0-9a-f-]{36}$/i.test(input.request_id||''))throw new Error('INVALID_REQUEST');await platform();const connection=await expressStore('get',ctx);if(!connection?.stripe_account_id)throw new Error('CONNECT_STRIPE_FIRST');const account=await stripe('accounts/'+connection.stripe_account_id);assertConnectedAccount(account,ctx);if(!account.charges_enabled||!account.details_submitted)throw new Error('STRIPE_ACCOUNT_NOT_READY');const fee=Math.round(input.amount/100);const session=await stripe('checkout/sessions',{mode:'payment',currency:'gbp','payment_method_types[0]':'card','line_items[0][price_data][currency]':'gbp','line_items[0][price_data][unit_amount]':String(input.amount),'line_items[0][price_data][product_data][name]':input.description.trim(),'line_items[0][quantity]':'1','payment_intent_data[application_fee_amount]':String(fee),'metadata[company_id]':ctx.company,'metadata[user_id]':ctx.user.id,success_url:origin+'/client-payment-result?status=returned',cancel_url:origin+'/client-payment-result?status=cancelled'},connection.stripe_account_id,'cleanma-charge-'+ctx.company+'-'+input.request_id);return {url:session.url,application_fee_amount:fee};}
+// Xero uses its own OAuth client and callback.
 export async function oauthStart(ctx,provider,res){
  if(provider!=='xero')throw new Error('INVALID_REQUEST');
  await paid(ctx.company);env('PAYMENT_TOKEN_ENCRYPTION_KEY');
@@ -57,43 +57,65 @@ export function expressStore(action,ctx,extra={}){
 function assertExpressAccount(account,ctx){
  if(account.type!=='express'||account.country!=='GB'||account.metadata?.company_id!==ctx.company||account.metadata?.app!=='cleanma')throw new Error('STRIPE_ACCOUNT_MISMATCH');
 }
-async function findCompanyExpressAccount(ctx) {
- let cursor;
- let match;
- do {
-  const query = new URLSearchParams({limit:'100'});
-  if(cursor)query.set('starting_after',cursor);
-  const page = await stripe('accounts?'+query);
-  if(!Array.isArray(page?.data)||typeof page.has_more!=='boolean')throw new Error('STRIPE_SETUP_NEEDS_REVIEW');
-  for(const account of page.data) {
-   if(account.metadata?.app!=='cleanma'||account.metadata?.company_id!==ctx.company)continue;
-   if(match)throw new Error('STRIPE_SETUP_NEEDS_REVIEW');
-   assertExpressAccount(account,ctx);
-   match=account;
-  }
-  const nextCursor=page.has_more?page.data.at(-1)?.id:null;
-  if(page.has_more&&(!nextCursor||nextCursor===cursor))throw new Error('STRIPE_SETUP_NEEDS_REVIEW');
-  cursor=nextCursor;
- } while(cursor);
- return match;
+function assertConnectedAccount(account,ctx){
+ if(account.type==='standard')return;
+ assertExpressAccount(account,ctx);
 }
-export async function expressOnboarding(ctx){
- await paid(ctx.company);await platform();
- const saved=await expressStore('begin',ctx);
- let account;
- if(saved.stripe_account_id){account=await stripe('accounts/'+saved.stripe_account_id);assertExpressAccount(account,ctx);}
- else{
-  const startedAt=Date.parse(saved.created_at);
-  if(!Number.isFinite(startedAt)||!saved.provision_id)throw new Error('STRIPE_SETUP_NEEDS_REVIEW');
-  // Stripe can expire the idempotency key. Reconcile with Stripe before retrying
-  // an old provision in case account creation succeeded and the DB save failed.
-  if(Date.now()-startedAt>=23*60*60*1000)account=await findCompanyExpressAccount(ctx);
-  account??=await stripe('accounts',{type:'express',country:'GB','capabilities[card_payments][requested]':'true','capabilities[transfers][requested]':'true','metadata[company_id]':ctx.company,'metadata[app]':'cleanma'},undefined,'cleanma-express-'+saved.provision_id);
-  assertExpressAccount(account,ctx);
-  await expressStore('save',ctx,{provision_id:saved.provision_id,account_id:account.id});
+
+const stripeCallbackPath='/api/stripe/connect/callback';
+const stripeOauthCookie='cleanma_stripe_oauth';
+const stripeCookieOptions='HttpOnly; Secure; SameSite=Lax; Path='+stripeCallbackPath;
+
+export async function stripeOAuthStart(ctx,res){
+ await paid(ctx.company);
+ await platform();
+ const state=randomBytes(32).toString('hex');
+ await db('state',{hash:digest(state),company:ctx.company,user:ctx.user.id,provider:'stripe'});
+ res.setHeader('Set-Cookie',`${stripeOauthCookie}=${state}; Max-Age=600; ${stripeCookieOptions}`);
+ const url=new URL('https://connect.stripe.com/oauth/authorize');
+ url.search=new URLSearchParams({
+  response_type:'code',
+  client_id:process.env.STRIPE_CLIENT_ID||'ca_U3NMzRFZ5hDElPwbz7d2A1IluzVlhsr8',
+  scope:'read_write',
+  redirect_uri:origin+stripeCallbackPath,
+  state,
+ }).toString();
+ return {url:url.href};
+}
+
+export async function stripeOAuthCallback(req,res){
+ const params=new URL(req.url,origin).searchParams;
+ const state=params.get('state')||'';
+ const cookie=(req.headers.cookie||'').split(';').map(x=>x.trim())
+  .find(x=>x.startsWith(stripeOauthCookie+'='))?.slice(stripeOauthCookie.length+1);
+ if(!/^[a-f0-9]{64}$/.test(state)||cookie!==state)throw new Error('INVALID_OAUTH_STATE');
+ const saved=await db('consume_state',{hash:digest(state)});
+ res.setHeader('Set-Cookie',`${stripeOauthCookie}=; Max-Age=0; ${stripeCookieOptions}`);
+ if(saved?.provider!=='stripe')throw new Error('INVALID_OAUTH_STATE');
+ const code=params.get('code');
+ if(params.get('error')||!code)throw new Error('OAUTH_CANCELLED');
+ await paid(saved.company_id);
+ const platformAccount=await platform();
+ const secret=env('STRIPE_SECRET_KEY');
+ const grant=await request('https://connect.stripe.com/oauth/token',{
+  method:'POST',
+  headers:{'Content-Type':'application/x-www-form-urlencoded',Authorization:'Basic '+Buffer.from(secret+':').toString('base64')},
+  body:new URLSearchParams({grant_type:'authorization_code',code}),
+ });
+ const accountId=grant.stripe_user_id;
+ const liveMode=/^(sk|rk)_live_/.test(secret);
+ if(!/^acct_[a-zA-Z0-9]+$/.test(accountId||'')||accountId===platformAccount.id||
+    grant.scope!=='read_write'||grant.livemode!==liveMode){
+  throw new Error('STRIPE_ACCOUNT_MISMATCH');
  }
- const link=await stripe('account_links',{account:account.id,type:'account_onboarding',refresh_url:origin+'/admin/settings?finance=integrations&integration=stripe_refresh',return_url:origin+'/api/stripe/connect/callback'});
- return {url:link.url};
+ const account=await stripe('accounts/'+accountId);
+ if(account.id!==accountId||account.type!=='standard')throw new Error('STRIPE_ACCOUNT_MISMATCH');
+ const key=env('SUPABASE_SERVICE_ROLE_KEY');
+ await request(env('SUPABASE_URL')+'/rest/v1/rpc/cleanma_bind_stripe_standard',{
+  method:'POST',
+  headers:{apikey:key,Authorization:'Bearer '+key,'Content-Type':'application/json'},
+  body:JSON.stringify({target_company:saved.company_id,owner_id:saved.user_id,account_id:accountId}),
+ });
 }
 export async function expressDashboard(ctx){
  await paid(ctx.company);await platform();
@@ -108,7 +130,7 @@ export async function connectionStatus(ctx){
  const saved=await expressStore('get',ctx);
  if(!saved?.stripe_account_id)return [...rows,{provider:'stripe',account_id:null,connected:false,charges_enabled:false,details_submitted:false,payouts_enabled:false}];
  try{
-  await platform();const account=await stripe('accounts/'+saved.stripe_account_id);assertExpressAccount(account,ctx);
+  await platform();const account=await stripe('accounts/'+saved.stripe_account_id);assertConnectedAccount(account,ctx);
   return [...rows,{provider:'stripe',account_id:account.id,connected:true,charges_enabled:account.charges_enabled===true,details_submitted:account.details_submitted===true,payouts_enabled:account.payouts_enabled===true,currently_due:account.requirements?.currently_due||[]}];
  }catch{return [...rows,{provider:'stripe',account_id:saved.stripe_account_id,connected:true,status_unavailable:true}];}
 }

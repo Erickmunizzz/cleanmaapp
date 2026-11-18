@@ -1,81 +1,63 @@
-import test from 'node:test';import assert from 'node:assert/strict';import {createHmac} from 'node:crypto';import {verifySignature,seal,unseal,quickLink,checkout,oauthCallback,expressOnboarding,expressDashboard,connectionStatus,oauthStart} from '../server/payments.mjs';
+import test from 'node:test';import assert from 'node:assert/strict';import {createHmac} from 'node:crypto';import {verifySignature,seal,unseal,quickLink,checkout,oauthCallback,stripeOAuthStart,stripeOAuthCallback,oauthStart} from '../server/payments.mjs';
 const context={company:'00000000-0000-4000-8000-000000000001',user:{id:'00000000-0000-4000-8000-000000000002',email:'owner@example.invalid'}};
 process.env.PAYMENT_TOKEN_ENCRYPTION_KEY=Buffer.alloc(32,7).toString('base64');process.env.SUPABASE_URL='https://database.example.invalid';process.env.SUPABASE_SERVICE_ROLE_KEY='test-only';process.env.STRIPE_SECRET_KEY='test-only';
 test('webhook accepts signed raw bytes; rejects alteration, replay and bad signatures',()=>{const raw=Buffer.from('{"id":"evt_test"}'),t=String(Math.floor(Date.now()/1000)),sig=createHmac('sha256','test').update(t+'.').update(raw).digest('hex');assert.equal(verifySignature(raw,`t=${t},v1=${sig}`,'test'),true);assert.equal(verifySignature(Buffer.from('{}'),`t=${t},v1=${sig}`,'test'),false);assert.equal(verifySignature(raw,`t=${t},v1=${sig}`,'test',Date.now()+301000),false);assert.equal(verifySignature(raw,'t=1,v1=ff','test'),false)});
 test('OAuth token envelope is authenticated encryption',()=>{const token={access_token:'test-token',refresh_token:'test-refresh'};const encrypted=seal(token);assert.equal(encrypted.includes('test-token'),false);assert.deepEqual(unseal(encrypted),token);const corrupted=Buffer.from(encrypted,'base64');corrupted[30]^=1;assert.throws(()=>unseal(corrupted.toString('base64')))});
-test('Stripe direct charge routes to connected company and retains 1%, not gross',async()=>{const original=global.fetch;const calls=[];global.fetch=async(url,init)=>{calls.push({url,init});let value;if(url.includes('/rpc/')){const b=JSON.parse(init.body);value=b.action==='subscription'?{plan:'growth',status:'active',current_period_end:'2099-01-01'}:{stripe_account_id:'acct_cleaner'};}else if(url.endsWith('/account'))value={id:'acct_1T56IvFn9iiryRd5'};else if(url.includes('/accounts/'))value={id:'acct_cleaner',type:'express',country:'GB',metadata:{app:'cleanma',company_id:context.company},charges_enabled:true,details_submitted:true};else value={url:'https://checkout.stripe.com/test-only'};return Response.json(value)};try{const result=await quickLink(context,{gateway:'stripe',amount:10000,description:'Office clean',request_id:'00000000-0000-4000-8000-000000000003'});assert.equal(result.application_fee_amount,100);const call=calls.at(-1);assert.equal(call.init.headers['Stripe-Account'],'acct_cleaner');assert.equal(call.init.body.get('payment_intent_data[application_fee_amount]'),'100');assert.equal(call.init.body.get('line_items[0][price_data][currency]'),'gbp');assert.equal(call.init.body.get('line_items[0][price_data][unit_amount]'),'10000');}finally{global.fetch=original}});
+test('Stripe direct charge routes to connected company and retains 1%, not gross',async()=>{const original=global.fetch;const calls=[];global.fetch=async(url,init)=>{calls.push({url,init});let value;if(url.includes('/rpc/')){const b=JSON.parse(init.body);value=b.action==='subscription'?{plan:'growth',status:'active',current_period_end:'2099-01-01'}:{stripe_account_id:'acct_cleaner'};}else if(url.endsWith('/account'))value={id:'acct_1T56IvFn9iiryRd5'};else if(url.includes('/accounts/'))value={id:'acct_cleaner',type:'standard',charges_enabled:true,details_submitted:true};else value={url:'https://checkout.stripe.com/test-only'};return Response.json(value)};try{const result=await quickLink(context,{gateway:'stripe',amount:10000,description:'Office clean',request_id:'00000000-0000-4000-8000-000000000003'});assert.equal(result.application_fee_amount,100);const call=calls.at(-1);assert.equal(call.init.headers['Stripe-Account'],'acct_cleaner');assert.equal(call.init.body.get('payment_intent_data[application_fee_amount]'),'100');assert.equal(call.init.body.get('line_items[0][price_data][currency]'),'gbp');assert.equal(call.init.body.get('line_items[0][price_data][unit_amount]'),'10000');}finally{global.fetch=original}});
 test('Starter cannot bypass Growth/Scale gate by calling API logic',async()=>{const original=global.fetch;global.fetch=async()=>Response.json({plan:'starter',status:'active',current_period_end:'2099-01-01'});try{await assert.rejects(()=>quickLink(context,{gateway:'stripe',amount:10000}),/GROWTH_OR_SCALE_REQUIRED/)}finally{global.fetch=original}});
 test('subscription price tampering fails before provider access',async()=>{await assert.rejects(()=>checkout(context,{plan:'starter',interval:'month',amount:1}),/INVALID_REQUEST/)});
 test('OAuth callback requires matching browser state cookie',async()=>{await assert.rejects(()=>oauthCallback({url:'/api/payment-oauth?state='+ 'a'.repeat(64)+'&code=x',headers:{}},{}),/INVALID_OAUTH_STATE/)});
 
-function expressFetch(options={}) {
+test('Stripe Standard URL uses the fallback client and stores an owner-bound state', async t => {
  const calls=[];
- const account={id:'acct_cleaner',type:'express',country:'GB',metadata:{app:'cleanma',company_id:context.company},charges_enabled:options.ready??true,details_submitted:options.ready??true,payouts_enabled:options.ready??true};
- return {calls,fetch:async(url,init)=>{
-  calls.push({url,init});
-  if(url.includes('/rpc/')){
-   const {action,payload}=JSON.parse(init.body);
-   if(url.endsWith('cleanma_payment_store'))return Response.json(action==='subscription'?{plan:'growth',status:'active',current_period_end:'2099-01-01'}:[]);
-   if(action==='begin')return Response.json(options.fresh?{stripe_account_id:null,provision_id:'stable-provision',created_at:options.stale?'2000-01-01':new Date().toISOString()}:{stripe_account_id:account.id});
-   if(action==='get')return Response.json({stripe_account_id:account.id});
-   if(action==='save'){assert.equal(payload.company,context.company);assert.equal(payload.account_id,account.id);return Response.json({});}
-  }
+ t.mock.method(global,'fetch',async (url,init)=>{
   if(url.endsWith('/account'))return Response.json({id:'acct_1T56IvFn9iiryRd5'});
-  if(url.includes('/accounts?')){
-   if(options.listUnavailable)return Response.json({}, {status:503});
-   const cursor=new URL(url).searchParams.get('starting_after');
-   if(options.orphan&&!cursor)return Response.json({data:[{id:'acct_unrelated'}],has_more:true});
-   return Response.json({data:options.orphan?[account]:[],has_more:false});
+  const rpc=JSON.parse(init.body);
+  calls.push(rpc);
+  return Response.json(rpc.action==='subscription'?{plan:'growth',status:'active',current_period_end:null}:{});
+ });
+ const headers={};
+ const {url}=await stripeOAuthStart(context,{setHeader:(name,value)=>{headers[name]=value;}});
+ const consent=new URL(url);
+ assert.equal(consent.origin+consent.pathname,'https://connect.stripe.com/oauth/authorize');
+ assert.equal(consent.searchParams.get('client_id'),'ca_U3NMzRFZ5hDElPwbz7d2A1IluzVlhsr8');
+ assert.equal(consent.searchParams.get('scope'),'read_write');
+ assert.equal(consent.searchParams.get('redirect_uri'),'https://cleanmaapp.com/api/stripe/connect/callback');
+ assert.match(headers['Set-Cookie'],new RegExp('^cleanma_stripe_oauth='+consent.searchParams.get('state')));
+ assert.equal(calls[1].payload.company,context.company);
+ assert.equal(calls[1].payload.user,context.user.id);
+ assert.equal(calls[1].payload.provider,'stripe');
+});
+
+test('Stripe callback exchanges the code once and binds the Standard account to the stored owner', async t => {
+ const state='a'.repeat(64);
+ const req={url:'/api/stripe/connect/callback?code=ac_once&state='+state,headers:{cookie:'cleanma_stripe_oauth='+state}};
+ let consumed=false;
+ const writes=[];
+ t.mock.method(global,'fetch',async (url,init)=>{
+  if(url.endsWith('/account'))return Response.json({id:'acct_1T56IvFn9iiryRd5'});
+  if(url.endsWith('/oauth/token')){
+   assert.equal(init.body.get('code'),'ac_once');
+   assert.equal(init.body.get('grant_type'),'authorization_code');
+   return Response.json({stripe_user_id:'acct_standard',scope:'read_write',livemode:false});
   }
-  if(url.endsWith('/account_links'))return Response.json({url:'https://connect.stripe.com/setup/test-only'});
-  if(url.endsWith('/login_links'))return Response.json({url:'https://connect.stripe.com/express/test-only'});
-  if(options.failure)return Response.json({}, {status:503});
-  return Response.json(options.foreign?{...account,metadata:{app:'cleanma',company_id:'another-company'}}:account);
- }};
-}
-async function withExpress(options,run){const original=global.fetch;const mock=expressFetch(options);global.fetch=mock.fetch;try{await run(mock.calls)}finally{global.fetch=original}}
-test('Express first click creates a GB account with both capabilities and durable idempotency, then saves before onboarding',async()=>{
- delete process.env.STRIPE_CONNECT_CLIENT_ID;delete process.env.PAYMENT_TOKEN_ENCRYPTION_KEY;
- try{await withExpress({fresh:true},async(calls)=>{
-  const result=await expressOnboarding(context);assert.match(result.url,/setup/);
-  const creation=calls.find(c=>c.url.endsWith('/accounts'));
-  assert.equal(creation.init.body.get('type'),'express');assert.equal(creation.init.body.get('country'),'GB');
-  assert.equal(creation.init.body.get('capabilities[card_payments][requested]'),'true');assert.equal(creation.init.body.get('capabilities[transfers][requested]'),'true');
-  assert.equal(creation.init.headers['Idempotency-Key'],'cleanma-express-stable-provision');
-  const save=calls.findIndex(c=>c.url.includes('/rpc/')&&JSON.parse(c.init.body).action==='save');
-  const link=calls.findIndex(c=>c.url.endsWith('/account_links'));assert.ok(save<link);
-  assert.equal(calls[link].init.body.get('type'),'account_onboarding');
-  for(const key of ['return_url','refresh_url']){const u=new URL(calls[link].init.body.get(key));assert.equal(u.origin,'https://cleanmaapp.com');assert.equal(u.pathname,key==='return_url'?'/api/stripe/connect/callback':'/admin/settings');}
- })}finally{process.env.PAYMENT_TOKEN_ENCRYPTION_KEY=Buffer.alloc(32,7).toString('base64')}
+  if(url.endsWith('/accounts/acct_standard'))return Response.json({id:'acct_standard',type:'standard'});
+  const body=JSON.parse(init.body);
+  if(body.action==='consume_state'){
+   if(consumed)return Response.json(null);
+   consumed=true;
+   return Response.json({provider:'stripe',company_id:context.company,user_id:context.user.id});
+  }
+  if(body.action==='subscription')return Response.json({plan:'growth',status:'active',current_period_end:null});
+  assert.ok(url.endsWith('/cleanma_bind_stripe_standard'));
+  writes.push(body);
+  return Response.json({});
+ });
+ await assert.rejects(()=>stripeOAuthCallback({...req,headers:{}},{setHeader(){}}),/INVALID_OAUTH_STATE/);
+ await stripeOAuthCallback(req,{setHeader(){}});
+ await assert.rejects(()=>stripeOAuthCallback(req,{setHeader(){}}),/INVALID_OAUTH_STATE/);
+ assert.deepEqual(writes,[{target_company:context.company,owner_id:context.user.id,account_id:'acct_standard'}]);
 });
-test('Express retry reuses company account and generates a fresh onboarding link',async()=>withExpress({},async calls=>{await expressOnboarding(context);assert.equal(calls.some(c=>c.url.endsWith('/accounts')),false);assert.ok(calls.some(c=>c.url.endsWith('/account_links')))}));
-test('Expired provision resumes an orphaned Express account from a later Stripe page',async()=>withExpress({fresh:true,stale:true,orphan:true},async calls=>{
- await expressOnboarding(context);
- assert.ok(calls.some(c=>c.url.includes('starting_after=acct_unrelated')));
- assert.equal(calls.some(c=>c.url.endsWith('/accounts')),false);
- assert.ok(calls.some(c=>c.url.endsWith('/account_links')));
-}));
-test('Expired provision can retry creation after Stripe confirms no account exists',async()=>withExpress({fresh:true,stale:true},async calls=>{
- await expressOnboarding(context);
- const list=calls.findIndex(c=>c.url.includes('/accounts?'));
- const create=calls.findIndex(c=>c.url.endsWith('/accounts'));
- assert.ok(list>=0&&create>list);
- assert.equal(calls[create].init.headers['Idempotency-Key'],'cleanma-express-stable-provision');
-}));
-test('Failed reconciliation cannot create a second account',async()=>withExpress({fresh:true,stale:true,listUnavailable:true},async calls=>{
- await assert.rejects(()=>expressOnboarding(context),/PROVIDER_REQUEST_FAILED/);
- assert.equal(calls.some(c=>c.url.endsWith('/accounts')),false);
-}));
-test('Express Dashboard is generated server-side only for ready company account',async()=>withExpress({},async calls=>{await expressDashboard(context);const call=calls.at(-1);assert.equal(call.url,'https://api.stripe.com/v1/accounts/acct_cleaner/login_links');assert.equal(call.init.method,'POST')}));
-test('Incomplete or foreign Express accounts cannot open dashboard or collect payments',async()=>{
- await withExpress({ready:false},async calls=>{await assert.rejects(()=>expressDashboard(context),/STRIPE_ACCOUNT_NOT_READY/);assert.equal(calls.some(c=>c.url.endsWith('/login_links')),false)});
- await withExpress({foreign:true},async()=>{await assert.rejects(()=>expressOnboarding(context),/STRIPE_ACCOUNT_MISMATCH/);await assert.rejects(()=>quickLink(context,{gateway:'stripe',amount:10000,description:'Clean',request_id:'00000000-0000-4000-8000-000000000003'}),/STRIPE_ACCOUNT_MISMATCH/)});
-});
-test('Connection status uses current Stripe flags and does not treat outages as disconnected',async()=>{
- await withExpress({ready:false},async()=>{const rows=await connectionStatus(context);assert.equal(rows[0].connected,true);assert.equal(rows[0].charges_enabled,false);assert.equal(rows[0].details_submitted,false)});
- await withExpress({failure:true},async()=>{const rows=await connectionStatus(context);assert.equal(rows[0].status_unavailable,true);assert.equal(rows[0].charges_enabled,undefined)});
-});
-test('Stripe cannot enter the retired OAuth authorisation flow',async()=>assert.rejects(()=>oauthStart(context,'stripe',{}),/INVALID_REQUEST/));
 
 test('integration gate follows server-managed active and trial entitlements without false date or casing blocks',async()=>{
  const {hasIntegrationAccess}=await import('../server/payments.mjs');
