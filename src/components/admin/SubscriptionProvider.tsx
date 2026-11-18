@@ -79,7 +79,12 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     try {
       const current = await loadSubscription(companyId, month);
       const full = resource === "staff" ? current.staffUsed >= current.staffLimit : current.jobsUsed >= current.jobsLimit;
-      if (full) { setConfirmation(""); setReason(LIMIT_MESSAGE); refresh(); return false; }
+      if (full) { setConfirmation(""); const limit = resource === "staff" ? current.staffLimit : current.jobsLimit;
+        const allowance = resource === "staff" ? "active staff members" : "cleanings in the selected month";
+        const nextStep = current.plan === "scale" ? "Contact support to discuss more capacity." : "Upgrade your plan to add more.";
+        setReason(`Your plan allows ${limit} ${allowance}. ${nextStep}`);
+        refresh();
+        return false; }
       return true;
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not verify plan limits."); return false; }
   }
@@ -97,7 +102,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
       <Button variant="outline" onClick={() => { setConfirmation(""); setReason(full ? LIMIT_MESSAGE : "Choose more room for your team."); }}> {status.plan === "scale" ? "Contact support" : "View plans"}</Button>
     </aside>}
     {blocked ? <section className="rounded-2xl border border-border bg-card p-8"><h1 className="font-serif text-2xl">{query.isPending ? "Checking your plan…" : "Upgrade your workspace"}</h1>
-      <p className="my-4 text-muted-foreground">This feature requires {feature === "payments" ? "Scale" : "Growth or Scale"}.</p>
+      <p className="my-4 text-muted-foreground">Upgrade to Growth or Scale to use this feature.</p>
       <Button disabled={!status} onClick={() => feature && requireFeature(feature)}>View plans</Button></section> : children}
     <Dialog open={reason !== null} onOpenChange={open => { if (!open) { setReason(null); request.reset(); setConfirmation(""); } }}>
       <DialogContent className="max-h-[90dvh] overflow-y-auto rounded-2xl border-border bg-card p-8 sm:max-w-3xl sm:p-10">

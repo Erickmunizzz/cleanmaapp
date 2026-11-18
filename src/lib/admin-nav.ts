@@ -46,7 +46,7 @@ export const adminNav: AdminNavGroup[] = [
       { id: "customers", label: "Customers", icon: Users },
       { id: "employees", label: "Staff", icon: Briefcase },
       { id: "plans", label: "Cleaning Plans", icon: FileText },
-      { id: "client-portal", label: "Client Portal", icon: Globe, badge: "GROWTH" },
+      { id: "client-portal", label: "Client Portal", icon: Globe },
       { id: "safety", label: "Safety & Compliance", icon: ShieldCheck },
     ],
   },

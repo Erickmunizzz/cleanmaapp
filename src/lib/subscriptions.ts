@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { supabase } from "@/integrations/supabase/client";
 
-export const LIMIT_MESSAGE = "Você atingiu o limite do seu plano atual. Faça o upgrade para continuar cadastrando.";
+export const LIMIT_MESSAGE = "You’ve reached your plan limit. View your upgrade options or contact support for more capacity.";
 export const plans = [
   { id: "starter", name: "Starter", price: "£89.99", staff: 5, jobs: 230 },
   { id: "growth", name: "Growth", price: "£179.99", staff: 12, jobs: 570 },
