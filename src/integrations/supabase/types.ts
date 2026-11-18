@@ -1202,6 +1202,7 @@ export type Database = {
       }
       profiles: {
         Row: {
+          must_change_password: boolean
           company_id: string
           created_at: string
           full_name: string
@@ -1210,6 +1211,7 @@ export type Database = {
           role: string
         }
         Insert: {
+          must_change_password?: boolean
           company_id: string
           created_at?: string
           full_name: string
@@ -1218,6 +1220,7 @@ export type Database = {
           role: string
         }
         Update: {
+          must_change_password?: boolean
           company_id?: string
           created_at?: string
           full_name?: string
@@ -1308,6 +1311,9 @@ export type Database = {
       }
       staff: {
         Row: {
+          hourly_rate: number | null
+          assigned_client_id: string | null
+          invitation_sent_at: string | null
           company_id: string | null
           created_at: string
           email: string | null
@@ -1321,6 +1327,9 @@ export type Database = {
           weekly_hours: number | null
         }
         Insert: {
+          hourly_rate?: number | null
+          assigned_client_id?: string | null
+          invitation_sent_at?: string | null
           company_id?: string | null
           created_at?: string
           email?: string | null
@@ -1334,6 +1343,9 @@ export type Database = {
           weekly_hours?: number | null
         }
         Update: {
+          hourly_rate?: number | null
+          assigned_client_id?: string | null
+          invitation_sent_at?: string | null
           company_id?: string | null
           created_at?: string
           email?: string | null

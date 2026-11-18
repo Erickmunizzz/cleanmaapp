@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 const base='.vercel/output';
 const config=JSON.parse(await fs.readFile(base+'/config.json','utf8'));
 const core=await fs.readFile('server/payments.mjs','utf8');
-const routes = ['payments', 'payment-oauth', 'xero/callback', 'stripe/connect/callback', 'stripe-webhook'];
+const routes = ['payments', 'employee-invite', 'payment-oauth', 'xero/callback', 'stripe/connect/callback', 'stripe-webhook'];
 for(const name of routes){
  const dir=base+'/functions/api/'+name+'.func';await fs.mkdir(dir,{recursive:true});
  const entry=(await fs.readFile('api/'+(name === 'xero/callback' ? 'payment-oauth' : name)+'.js','utf8')).replace(/(?:\.\.\/)+server\/payments\.mjs/,'./payments.mjs');

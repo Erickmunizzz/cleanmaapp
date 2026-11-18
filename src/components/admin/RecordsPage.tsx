@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { InviteEmployee } from "./InviteEmployee";
+import { inviteEmployee } from "@/lib/employee-invite";
 import { EmployeeTable } from "./EmployeeTable";
 import { AdminDataBoundary } from "./AdminSession";
 import { adminRecordsOptions } from "@/lib/admin-records.query";
@@ -26,7 +28,7 @@ type RecordRow = Tables<"clients"> | Tables<"staff"> | Tables<"materials">;
 
 const config = {
   customers: { title: "Customers", singular: "Customer", icon: Users, fields: ["name", "email", "phone", "address"] },
-  staff: { title: "Employees", singular: "Employee", icon: Briefcase, fields: ["name", "email", "phone", "role", "weekly_hours"] },
+  staff: { title: "Employees", singular: "Employee", icon: Briefcase, fields: ["name", "email", "phone", "role", "weekly_hours", "hourly_rate"] },
   materials: { title: "Materials & Replenishment", singular: "Material", icon: Package, fields: ["name", "quantity", "unit"] },
 } as const;
 
@@ -73,6 +75,7 @@ function RecordsContent({ kind, search, onSearch, archived, navigation }: Record
   const visibleIds = new Set(rows.map(row => row.id));
   const invalidateRecords = async () => Promise.all([
     queryClient.invalidateQueries({ queryKey: ["admin-records"] }),
+    queryClient.invalidateQueries({ queryKey: ["finance"] }),
     queryClient.invalidateQueries({ queryKey: ["job-pickers"] }),
     queryClient.invalidateQueries({ queryKey: ["message-staff"] }),
     queryClient.invalidateQueries({ queryKey: ["owner-overview"] }),
@@ -91,10 +94,27 @@ function RecordsContent({ kind, search, onSearch, archived, navigation }: Record
       }
       if (kind === "staff") {
         if (!editingId && !await subscription.requireCapacity("staff")) throw new Error(LIMIT_MESSAGE);
-        const payload = { name, email, phone, role: form["role"] ?? "", weekly_hours: form["weekly_hours"] ? Number(form["weekly_hours"]) : null, profile_id: form["profile_id"] ?? "" };
-        return editingId
-          ? updateStaffFn({ data: { id: editingId, data: payload } })
-          : addStaffFn({ data: payload });
+        if (!email.trim() && !phone.trim()) throw new Error("Enter an email or mobile number.");
+        if (!email.trim() && !/^\+[1-9]\d{7,14}$/.test(phone.replace(/[\s()-]/g, ""))) {
+          throw new Error("Enter the mobile number in international format, such as +447700900000.");
+        }
+        const payload = { name, email, phone,
+          hourly_rate: form["hourly_rate"] ? Number(form["hourly_rate"]) : null,
+          assigned_client_id: form["assigned_client_id"] || null,
+          role: form["role"] ?? "", weekly_hours: form["weekly_hours"] ? Number(form["weekly_hours"]) : null, profile_id: form["profile_id"] ?? "" };
+        if (editingId) return updateStaffFn({ data: { id: editingId, data: payload } });
+        const employee = await addStaffFn({ data: payload });
+        if (!employee.profile_id) {
+          try {
+            const result = await inviteEmployee(employee.id);
+            if (result.status === "email_unconfigured") toast.info("Email delivery needs setup. You can share the invitation by SMS or WhatsApp.");
+            if (result.status === "share_required") toast.info("Login created. Share the invitation by SMS or WhatsApp.");
+            if (result.status === "sent") toast.success("Employee invitation emailed.");
+          } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Invitation failed. Retry from Employees.");
+          }
+        }
+        return employee;
       }
       const payload = { name, quantity: Number(form["quantity"] ?? 0), unit: form["unit"] ?? "" };
       return editingId
@@ -137,7 +157,10 @@ function RecordsContent({ kind, search, onSearch, archived, navigation }: Record
     const values = row as unknown as Record<string, unknown>;
     const nextForm: Record<string, string> = {};
     for (const field of configItem.fields) nextForm[field] = String(values[field] ?? "");
-    if (kind === "staff") nextForm["profile_id"] = String(values["profile_id"] ?? "");
+    if (kind === "staff") {
+      nextForm["profile_id"] = String(values["profile_id"] ?? "");
+      nextForm["assigned_client_id"] = String(values["assigned_client_id"] ?? "");
+    }
     setEditingId(row.id);
     setForm(nextForm);
     save.reset();
@@ -154,6 +177,7 @@ function RecordsContent({ kind, search, onSearch, archived, navigation }: Record
       <Button onClick={startCreate} className="rounded-xl"><Plus />{kind === "staff" ? "Add employee" : `Add ${configItem.singular}`}</Button>
     </div>
     {navigation}
+    {kind === "staff" && !archived && <InviteEmployee employees={data.staff} refresh={invalidateRecords} />}
     <div className="relative max-w-sm"><Search className="absolute left-3 top-3 size-4 text-muted-foreground" /><Input aria-label={`Search ${kind}`} placeholder={`Search ${kind}…`} value={search} onChange={e => onSearch(e.target.value)} className="rounded-xl bg-card pl-9" /></div>
     {kind === "staff" ? (ownerContext.isError ? <p role="alert">{ownerContext.error.message}</p> : ownerContext.data &&
       <EmployeeTable key={`${Boolean(archived)}:${search}`} companyId={ownerContext.data.companyId}
@@ -178,8 +202,18 @@ function RecordsContent({ kind, search, onSearch, archived, navigation }: Record
       <DialogContent className="max-h-[85dvh] w-[calc(100%-2rem)] overflow-y-auto rounded-xl bg-card">
         <DialogHeader><DialogTitle>{editingId ? `Edit ${configItem.singular}` : `Add ${configItem.singular}`}</DialogTitle><DialogDescription className="sr-only">{configItem.singular} details</DialogDescription></DialogHeader>
         <form className="space-y-4" onSubmit={event => { event.preventDefault(); save.mutate(); }}>
-          {configItem.fields.map(field => <div key={field} className="space-y-2"><Label htmlFor={`record-${field}`} className="capitalize">{field === "weekly_hours" ? "Weekly hours" : field}{field === "name" && " *"}</Label><Input id={`record-${field}`} type={field === "email" ? "email" : field === "quantity" || field === "weekly_hours" ? "number" : field === "phone" ? "tel" : "text"} min={field === "quantity" || field === "weekly_hours" ? 0 : undefined} max={field === "weekly_hours" ? 168 : undefined} step={field === "weekly_hours" ? "0.01" : field === "quantity" ? "any" : undefined} required={field === "name" || field === "quantity"} value={form[field] ?? (field === "quantity" ? "0" : "")} onChange={event => setForm(previous => ({ ...previous, [field]: event.target.value }))} className="rounded-xl" /></div>)}
+          {configItem.fields.map(field => <div key={field} className="space-y-2"><Label htmlFor={`record-${field}`} className="capitalize">{field === "weekly_hours" ? "Weekly hours" : field === "hourly_rate" ? "Hourly rate (£)" : kind === "staff" && field === "name" ? "Full name" : field}{field === "name" && " *"}</Label><Input id={`record-${field}`} type={field === "email" ? "email" : field === "quantity" || field === "weekly_hours" || field === "hourly_rate" ? "number" : field === "phone" ? "tel" : "text"} min={field === "quantity" || field === "weekly_hours" || field === "hourly_rate" ? 0 : undefined} max={field === "weekly_hours" ? 168 : undefined} step={field === "weekly_hours" || field === "hourly_rate" ? "0.01" : field === "quantity" ? "any" : undefined} required={field === "name" || field === "quantity"} value={form[field] ?? (field === "quantity" ? "0" : "")} onChange={event => setForm(previous => ({ ...previous, [field]: event.target.value }))} className="rounded-xl" /></div>)}
           {kind === "staff" && <div className="space-y-2">
+            <Label htmlFor="record-assignment">Assigned client site</Label>
+            <select id="record-assignment" value={form["assigned_client_id"] ?? ""}
+              onChange={event => setForm(previous => ({ ...previous, assigned_client_id: event.target.value }))}
+              className="h-10 w-full rounded-xl border border-border bg-card px-3 text-sm">
+              <option value="">Unassigned</option>
+              {data.clients.filter(client => !client.is_archived || client.id === form["assigned_client_id"]).map(client =>
+                <option key={client.id} value={client.id}>{[client.name, client.address].filter(Boolean).join(" · ")}</option>)}
+            </select>
+          </div>}
+          {kind === "staff" && editingId && <div className="space-y-2">
             <Label htmlFor="record-profile">Cleaner login</Label>
             <select id="record-profile" value={form["profile_id"] ?? ""} onChange={event => setForm(previous => ({ ...previous, profile_id: event.target.value }))} className="h-10 w-full rounded-xl border border-border bg-card px-3 text-sm outline-none focus:border-primary">
               <option value="">Not linked</option>

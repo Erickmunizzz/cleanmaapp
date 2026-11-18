@@ -60,7 +60,7 @@ export function WageListing({ companyId }: { companyId: string }) {
     enabled: valid,
     queryFn: async () => {
       const [staff, jobs, rates, absences, preference, premiums] = await Promise.all([
-        readAllRows((a, b) => supabase.from("staff").select("id,name,is_active")
+        readAllRows((a, b) => supabase.from("staff").select("id,name,is_active,hourly_rate")
           .eq("company_id", companyId).order("name").order("id").range(a, b)),
         readAllRows((a, b) => supabase.rpc("wage_listing", {
           target_company: companyId, period_start: effectiveStart, period_end: end, include_cancelled: flags.cancelled,
@@ -166,7 +166,7 @@ export function WageListing({ companyId }: { companyId: string }) {
                 </tr></thead>
                 <tbody>{rows.slice(currentPage * 25, (currentPage + 1) * 25).map(([key, row]) => {
                   const name = employees.get(row.staffId)?.name ?? "Employee unavailable";
-                  const override = rates.get(row.staffId);
+                  const override = rates.get(row.staffId) ?? employees.get(row.staffId)?.hourly_rate ?? undefined;
                   const rate = override ?? summary.data.base;
                   const supplement = row.supplement + row.premiumHours * (rate ?? 0);
                   const absences = summary.data.absences.filter(a => a.staff_id === row.staffId);

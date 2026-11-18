@@ -1,4 +1,3 @@
-import {InviteEmployee} from "@/components/admin/InviteEmployee";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { AdminDataBoundary } from "@/components/admin/AdminSession";
 import { OwnerMessages } from "@/components/admin/OwnerMessages";
@@ -34,7 +33,7 @@ function Page() {
   const { q, tab, employee } = Route.useSearch();
   const navigate = Route.useNavigate();
   const navigation = (
-    <div><InviteEmployee/><nav aria-label="Employee sections" className="flex flex-wrap gap-2">
+    <div><nav aria-label="Employee sections" className="flex flex-wrap gap-2">
       {sections.map(section => <Button key={section.label} asChild className="rounded-full"
         variant={tab === section.tab ? "default" : "outline"}>
         <Link to="/admin/employees" search={{ q, tab: section.tab }}
