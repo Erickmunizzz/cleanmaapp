@@ -31,18 +31,21 @@ export async function oauthStart(ctx,provider,res){
  const client=env('XERO_CLIENT_ID');env('XERO_CLIENT_SECRET');
  const state=randomBytes(32).toString('hex');
  await db('state',{hash:digest(state),company:ctx.company,user:ctx.user.id,provider});
- res.setHeader('Set-Cookie',`cleanma_oauth=${state}; HttpOnly; Secure; SameSite=Lax; Max-Age=600; Path=/api/payment-oauth`);
+ res.setHeader('Set-Cookie',`cleanma_oauth=${state}; HttpOnly; Secure; SameSite=Lax; Max-Age=600; Path=/api/xero/callback`);
  const u=new URL('https://login.xero.com/identity/connect/authorize');
- u.search=new URLSearchParams({response_type:'code',client_id:client,redirect_uri:origin+'/api/payment-oauth',scope:'openid profile email offline_access accounting.transactions accounting.contacts accounting.settings',state}).toString();
+ u.search=new URLSearchParams({response_type:'code',client_id:client,redirect_uri:origin+'/api/xero/callback',scope:'openid profile email offline_access accounting.transactions accounting.contacts accounting.settings',state}).toString();
  return {url:u.href};
 }
 export async function oauthCallback(req,res){
  const q=new URL(req.url,origin).searchParams,state=q.get('state')||'',cookie=(req.headers.cookie||'').split(';').map(s=>s.trim()).find(s=>s.startsWith('cleanma_oauth='))?.slice(14);
  if(!/^[0-9a-f]{64}$/.test(state)||cookie!==state)throw new Error('INVALID_OAUTH_STATE');
+ const callbackPath=new URL(req.url,origin).pathname;
+ if(!['/api/payment-oauth','/api/xero/callback'].includes(callbackPath))throw new Error('INVALID_OAUTH_STATE');
  const saved=await db('consume_state',{hash:digest(state)});
- res.setHeader('Set-Cookie','cleanma_oauth=; HttpOnly; Secure; SameSite=Lax; Max-Age=0; Path=/api/payment-oauth');
+ res.setHeader('Set-Cookie',`cleanma_oauth=; HttpOnly; Secure; SameSite=Lax; Max-Age=0; Path=${callbackPath}`);
  if(!saved||saved.provider!=='xero'||!q.get('code'))throw new Error('OAUTH_CANCELLED');
- const tokens=await request('https://identity.xero.com/connect/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded',Authorization:'Basic '+Buffer.from(env('XERO_CLIENT_ID')+':'+env('XERO_CLIENT_SECRET')).toString('base64')},body:new URLSearchParams({grant_type:'authorization_code',code:q.get('code'),redirect_uri:origin+'/api/payment-oauth'})});
+ const tokens=await request('https://identity.xero.com/connect/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded',Authorization:'Basic '+Buffer.from(env('XERO_CLIENT_ID')+':'+env('XERO_CLIENT_SECRET')).toString('base64')},body:new URLSearchParams({grant_type:'authorization_code',code:q.get('code'),redirect_uri:origin+callbackPath})});
+ if(!tokens?.access_token||!tokens.refresh_token)throw new Error('XERO_TOKENS_REQUIRED');
  const tenants=await request('https://api.xero.com/connections',{headers:{Authorization:'Bearer '+tokens.access_token}});
  if(!Array.isArray(tenants)||!tenants.length)throw new Error('XERO_TENANT_REQUIRED');
  await db('save_connection',{company:saved.company_id,user:saved.user_id,provider:'xero',account_id:tenants.length===1?tenants[0].tenantId:null,ciphertext:seal({...tokens,tenants,expires_at:Date.now()+(tokens.expires_in||1800)*1000})});
@@ -66,7 +69,7 @@ export async function expressOnboarding(ctx){
   assertExpressAccount(account,ctx);
   await expressStore('save',ctx,{provision_id:saved.provision_id,account_id:account.id});
  }
- const link=await stripe('account_links',{account:account.id,type:'account_onboarding',refresh_url:origin+'/admin/settings?finance=integrations&integration=stripe_refresh',return_url:origin+'/admin/settings?finance=integrations&integration=stripe_return'});
+ const link=await stripe('account_links',{account:account.id,type:'account_onboarding',refresh_url:origin+'/admin/settings?finance=integrations&integration=stripe_refresh',return_url:origin+'/api/stripe/connect/callback'});
  return {url:link.url};
 }
 export async function expressDashboard(ctx){

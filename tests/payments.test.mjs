@@ -39,7 +39,7 @@ test('Express first click creates a GB account with both capabilities and durabl
   const save=calls.findIndex(c=>c.url.includes('/rpc/')&&JSON.parse(c.init.body).action==='save');
   const link=calls.findIndex(c=>c.url.endsWith('/account_links'));assert.ok(save<link);
   assert.equal(calls[link].init.body.get('type'),'account_onboarding');
-  for(const key of ['return_url','refresh_url']){const u=new URL(calls[link].init.body.get(key));assert.equal(u.origin,'https://cleanmaapp.com');assert.equal(u.pathname,'/admin/settings');assert.equal(u.searchParams.get('finance'),'integrations');}
+  for(const key of ['return_url','refresh_url']){const u=new URL(calls[link].init.body.get(key));assert.equal(u.origin,'https://cleanmaapp.com');assert.equal(u.pathname,key==='return_url'?'/api/stripe/connect/callback':'/admin/settings');}
  })}finally{process.env.PAYMENT_TOKEN_ENCRYPTION_KEY=Buffer.alloc(32,7).toString('base64')}
 });
 test('Express retry reuses company account and generates a fresh onboarding link',async()=>withExpress({},async calls=>{await expressOnboarding(context);assert.equal(calls.some(c=>c.url.endsWith('/accounts')),false);assert.ok(calls.some(c=>c.url.endsWith('/account_links')))}));
@@ -69,4 +69,35 @@ test('integration gate follows server-managed active and trial entitlements with
  assert.equal(hasIntegrationAccess({plan:'growth',status:'trialing',trial_ends_at:'2026-11-01'},now),false);
  assert.equal(hasIntegrationAccess({plan:'starter',status:'active',current_period_end:null},now),false);
  assert.equal(hasIntegrationAccess(null,now),false);
+});
+
+test('Xero callback saves both encrypted tokens for the owner who started consent', async t => {
+  const state = 'a'.repeat(64);
+  const callback = 'https://cleanmaapp.com/api/xero/callback';
+  const tokens = {access_token: 'test-access', refresh_token: 'test-refresh'};
+  let saved;
+  t.mock.method(global, 'fetch', async (url, init) => {
+    if (url.endsWith('/connect/token')) {
+      assert.equal(init.body.get('redirect_uri'), callback);
+      assert.equal(init.body.get('code'), 'test-code');
+      return Response.json(tokens);
+    }
+    if (url.endsWith('/connections')) return Response.json([{tenantId: 'test-tenant'}]);
+    const {action, payload} = JSON.parse(init.body);
+    if (action === 'consume_state') return Response.json({provider: 'xero', company_id: context.company, user_id: context.user.id});
+    assert.equal(action, 'save_connection');
+    saved = payload;
+    return Response.json({});
+  });
+  process.env.XERO_CLIENT_ID = 'test-client';
+  process.env.XERO_CLIENT_SECRET = 'test-secret';
+  const res = {setHeader() {}, end() {}};
+  await oauthCallback({url: callback + '?code=test-code&state=' + state, headers: {cookie: 'cleanma_oauth=' + state}}, res);
+  assert.equal(res.statusCode, 303);
+  assert.equal(saved.company, context.company);
+  assert.equal(saved.user, context.user.id);
+  assert.equal(saved.account_id, 'test-tenant');
+  const credentials = unseal(saved.ciphertext);
+  assert.equal(credentials.access_token, tokens.access_token);
+  assert.equal(credentials.refresh_token, tokens.refresh_token);
 });
