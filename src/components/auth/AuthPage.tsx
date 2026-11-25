@@ -28,7 +28,8 @@ export function AuthPage({role='owner'}:{role?:'owner'|'cleaner'}) {
     setError('');
     try{localStorage.setItem('cleanma:remember-email',String(remember));if(remember)localStorage.setItem('cleanma:last-email',email.trim());else localStorage.removeItem('cleanma:last-email')}catch{}
     try{
-    const res = await authTimeout(mode==='signin'?supabase.auth.signInWithPassword({email,password}):supabase.auth.signUp({email,password,options:{emailRedirectTo:window.location.href}}));
+    const isInvitedSignup = mode === 'signup' && new URLSearchParams(location.search).has('invite');
+    const res = await authTimeout(mode==='signin'?supabase.auth.signInWithPassword({email,password}):supabase.auth.signUp({email,password,options:{emailRedirectTo:window.location.href,...(isInvitedSignup?{data:{cleanma_invited_cleaner:true}}:{})}}));
     if(res.error){if(res.error.code==='invalid_credentials')throw Error('Email ou senha incorretos');throw res.error;}
     if(!res.data.session){toast.success('Check your email to confirm your account.');return;}
     const token=new URLSearchParams(location.search).get('invite');
@@ -54,7 +55,7 @@ export function AuthPage({role='owner'}:{role?:'owner'|'cleaner'}) {
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <form onSubmit={submit} className="w-full max-w-sm space-y-4 rounded-2xl border border-border bg-card p-6 shadow-[var(--shadow-card)]">
         <div className="flex items-center gap-3">
-          <img src="/cleanma-logo.png" alt="CleanMa logo" className="h-8 w-12 shrink-0 rounded object-contain" />
+          <img src="/cleanma-logo.jpg" alt="CleanMa logo" className="h-8 w-12 shrink-0 rounded object-contain" />
           <div className="text-[17px] font-bold tracking-tight">{mode === "signin" ? (role==='owner'?"Owner sign in":"Cleaner sign in") : "Create account"}</div>
         </div>
         {error&&<p role="alert" className="text-sm text-destructive">{error}</p>}

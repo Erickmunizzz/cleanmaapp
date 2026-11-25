@@ -3,8 +3,9 @@ const context={company:'00000000-0000-4000-8000-000000000001',user:{id:'00000000
 process.env.PAYMENT_TOKEN_ENCRYPTION_KEY=Buffer.alloc(32,7).toString('base64');process.env.SUPABASE_URL='https://database.example.invalid';process.env.SUPABASE_SERVICE_ROLE_KEY='test-only';process.env.STRIPE_SECRET_KEY='test-only';
 test('webhook accepts signed raw bytes; rejects alteration, replay and bad signatures',()=>{const raw=Buffer.from('{"id":"evt_test"}'),t=String(Math.floor(Date.now()/1000)),sig=createHmac('sha256','test').update(t+'.').update(raw).digest('hex');assert.equal(verifySignature(raw,`t=${t},v1=${sig}`,'test'),true);assert.equal(verifySignature(Buffer.from('{}'),`t=${t},v1=${sig}`,'test'),false);assert.equal(verifySignature(raw,`t=${t},v1=${sig}`,'test',Date.now()+301000),false);assert.equal(verifySignature(raw,'t=1,v1=ff','test'),false)});
 test('OAuth token envelope is authenticated encryption',()=>{const token={access_token:'test-token',refresh_token:'test-refresh'};const encrypted=seal(token);assert.equal(encrypted.includes('test-token'),false);assert.deepEqual(unseal(encrypted),token);const corrupted=Buffer.from(encrypted,'base64');corrupted[30]^=1;assert.throws(()=>unseal(corrupted.toString('base64')))});
-test('Stripe direct charge routes to connected company and retains 1%, not gross',async()=>{const original=global.fetch;const calls=[];global.fetch=async(url,init)=>{calls.push({url,init});let value;if(url.includes('/rpc/')){const b=JSON.parse(init.body);value=b.action==='subscription'?{plan:'growth',status:'active',current_period_end:'2099-01-01'}:{stripe_account_id:'acct_cleaner'};}else if(url.endsWith('/account'))value={id:'acct_1T56IvFn9iiryRd5'};else if(url.includes('/accounts/'))value={id:'acct_cleaner',type:'standard',charges_enabled:true,details_submitted:true};else value={url:'https://checkout.stripe.com/test-only'};return Response.json(value)};try{const result=await quickLink(context,{gateway:'stripe',amount:10000,description:'Office clean',request_id:'00000000-0000-4000-8000-000000000003'});assert.equal(result.application_fee_amount,100);const call=calls.at(-1);assert.equal(call.init.headers['Stripe-Account'],'acct_cleaner');assert.equal(call.init.body.get('payment_intent_data[application_fee_amount]'),'100');assert.equal(call.init.body.get('line_items[0][price_data][currency]'),'gbp');assert.equal(call.init.body.get('line_items[0][price_data][unit_amount]'),'10000');}finally{global.fetch=original}});
+test('Stripe direct charge routes to connected company and retains 1%, not gross',async()=>{const original=global.fetch;const calls=[];global.fetch=async(url,init)=>{calls.push({url,init});let value;if(url.includes('/companies?'))value=[{status:'active'}];else if(url.includes('/rpc/')){const b=JSON.parse(init.body);value=b.action==='subscription'?{plan:'growth',status:'active',current_period_end:'2099-01-01'}:{stripe_account_id:'acct_cleaner'};}else if(url.endsWith('/account'))value={id:'acct_1T56IvFn9iiryRd5'};else if(url.includes('/accounts/'))value={id:'acct_cleaner',type:'standard',charges_enabled:true,details_submitted:true};else value={url:'https://checkout.stripe.com/test-only'};return Response.json(value)};try{const result=await quickLink(context,{gateway:'stripe',amount:10000,description:'Office clean',request_id:'00000000-0000-4000-8000-000000000003'});assert.equal(result.application_fee_amount,100);const call=calls.at(-1);assert.equal(call.init.headers['Stripe-Account'],'acct_cleaner');assert.equal(call.init.body.get('payment_intent_data[application_fee_amount]'),'100');assert.equal(call.init.body.get('line_items[0][price_data][currency]'),'gbp');assert.equal(call.init.body.get('line_items[0][price_data][unit_amount]'),'10000');}finally{global.fetch=original}});
 test('Starter cannot bypass Growth/Scale gate by calling API logic',async()=>{const original=global.fetch;global.fetch=async()=>Response.json({plan:'starter',status:'active',current_period_end:'2099-01-01'});try{await assert.rejects(()=>quickLink(context,{gateway:'stripe',amount:10000}),/GROWTH_OR_SCALE_REQUIRED/)}finally{global.fetch=original}});
+test('Blocked companies cannot call paid integration APIs with an otherwise valid subscription',async()=>{const original=global.fetch;global.fetch=async(url)=>Response.json(url.includes('/companies?')?[{status:'blocked'}]:{plan:'growth',status:'active',current_period_end:'2099-01-01'});try{await assert.rejects(()=>quickLink(context,{gateway:'stripe',amount:10000}),/GROWTH_OR_SCALE_REQUIRED/)}finally{global.fetch=original}});
 test('subscription price tampering fails before provider access',async()=>{await assert.rejects(()=>checkout(context,{plan:'starter',interval:'month',amount:1}),/INVALID_REQUEST/)});
 test('OAuth callback requires matching browser state cookie',async()=>{await assert.rejects(()=>oauthCallback({url:'/api/payment-oauth?state='+ 'a'.repeat(64)+'&code=x',headers:{}},{}),/INVALID_OAUTH_STATE/)});
 
@@ -14,6 +15,7 @@ test('Stripe Standard URL uses the configured client and stores an owner-bound s
  process.env.STRIPE_CLIENT_ID='  ca_ConfiguredClient123  ';
  const calls=[];
  t.mock.method(global,'fetch',async (url,init)=>{
+  if(url.includes('/companies?'))return Response.json([{status:'active'}]);
   if(url.endsWith('/account'))return Response.json({id:'acct_1T56IvFn9iiryRd5'});
   const rpc=JSON.parse(init.body);
   calls.push(rpc);
@@ -38,6 +40,7 @@ test('Stripe rejects missing or malformed Client IDs before contacting Stripe', 
  delete process.env.NEXT_PUBLIC_STRIPE_CLIENT_ID;
  const log=t.mock.method(console,'error',()=>{});
  t.mock.method(global,'fetch',async url=>{
+  if(url.includes('/companies?'))return Response.json([{status:'active'}]);
   assert.ok(url.endsWith('/cleanma_payment_store'));
   return Response.json({plan:'growth',status:'active',current_period_end:null});
  });
@@ -54,6 +57,7 @@ test('Stripe callback exchanges the code once and binds the Standard account to 
  let consumed=false;
  const writes=[];
  t.mock.method(global,'fetch',async (url,init)=>{
+  if(url.includes('/companies?'))return Response.json([{status:'active'}]);
   if(url.endsWith('/account'))return Response.json({id:'acct_1T56IvFn9iiryRd5'});
   if(url.endsWith('/oauth/token')){
    assert.equal(init.body.get('code'),'ac_once');
@@ -129,6 +133,7 @@ test('Xero consent uses granular read scopes and requests a refresh token', asyn
  process.env.XERO_CLIENT_ID='test-client';
  process.env.XERO_CLIENT_SECRET='test-secret';
  t.mock.method(global,'fetch',async (_url,init)=>{
+  if(_url.includes('/companies?'))return Response.json([{status:'active'}]);
   const {action}=JSON.parse(init.body);
   return Response.json(action==='subscription'?{plan:'growth',status:'active',current_period_end:'2099-01-01'}:{});
  });

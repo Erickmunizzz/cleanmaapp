@@ -33,7 +33,7 @@ export function AdminSidebar({ open, onNavigate }: { open: boolean; onNavigate: 
       )}
     >
       <div className="flex h-16 shrink-0 items-center gap-3 border-b border-border px-5">
-        <img src="/cleanma-logo.png" alt="CleanMa logo" className="h-8 w-12 shrink-0 rounded object-contain" />
+        <img src="/cleanma-logo.jpg" alt="CleanMa logo" className="h-8 w-12 shrink-0 rounded object-contain" />
         <div>
           <div className="text-[15px] font-bold leading-none tracking-tight">CleanMa</div>
           <div className="mt-0.5 text-[11px] font-medium text-muted-foreground">Modern Cleaning Ops</div>
@@ -87,8 +87,7 @@ export function AdminSidebar({ open, onNavigate }: { open: boolean; onNavigate: 
             Up to 20 active staff and 1,000 jobs per month.
           </div>
           <Link
-            to="/admin/$section"
-            params={{ section: "settings" }}
+            to="/planos"
             onClick={onNavigate}
             className="mt-3 block w-full rounded-lg bg-card py-2 text-center text-[12px] font-semibold text-foreground transition hover:bg-secondary"
           >

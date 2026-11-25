@@ -38,6 +38,8 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     queryFn: () => loadSubscription(companyId!), refetchInterval: 30_000,
   });
   const status = companyId && !query.isError ? query.data : undefined;
+  const trialDays = status?.trialStatus === 'trial' && status.trialEndsAt
+    ? Math.max(0, Math.ceil((Date.parse(status.trialEndsAt) - Date.now()) / 86_400_000)) : null;
   const blocked = Boolean(session && feature && (!status || !allowsFeature(status.plan, feature)));
   const refresh = () => void client.invalidateQueries({ queryKey: ["subscription"] });
   useEffect(() => { setReason(null); setConfirmation(""); }, [companyId]);
@@ -96,6 +98,10 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const rank = plans.findIndex(plan => plan.id === status?.plan);
   return <Context.Provider value={{ canUse: required => Boolean(status && allowsFeature(status.plan, required)), requireFeature, requireCapacity, handleError }}>
     {session && query.isError && <div role="alert" className="mb-5 rounded-xl border border-border p-4 text-sm">Could not verify your subscription. <Button variant="link" onClick={() => void query.refetch()}>Try again</Button></div>}
+    {trialDays !== null && <aside role="status" className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3 text-sm">
+      <span>{trialDays <= 1 ? 'Last day of your free trial' : `${trialDays} days left in your free trial`}</span>
+      <Button variant="outline" size="sm" onClick={() => window.location.assign('/planos')}>View plans</Button>
+    </aside>}
     {status && near && <aside role="status" className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-border bg-card p-5 shadow-sm">
       <div><p className="font-serif text-lg">{full ? LIMIT_MESSAGE : "Your workspace is approaching its plan limit."}</p>
         <p className="mt-1 text-sm text-muted-foreground">{status.staffUsed}/{status.staffLimit} active employees · {status.jobsUsed}/{status.jobsLimit} jobs in {status.month.slice(0, 7)}</p></div>

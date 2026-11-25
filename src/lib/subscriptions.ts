@@ -29,9 +29,9 @@ export async function loadSubscription(companyId: string, month?: string) {
   const result=subscriptionSchema.parse(data);
   const access=await supabase.rpc('current_subscription_access' as never);
   if(access.error)throw access.error;
-  const entitlement=z.object({active:z.boolean(),plan:planSchema}).nullable().parse(access.data);
+  const entitlement=z.object({active:z.boolean(),plan:planSchema,status:z.enum(['trial','active','blocked']),trialEndsAt:z.string().nullable()}).nullable().parse(access.data);
   if(!entitlement?.active)throw new Error('Subscription expired. Choose a plan to continue.');
-  return {...result,plan:entitlement.plan,staffLimit:entitlement.plan==='scale'?20:entitlement.plan==='growth'?12:5,jobsLimit:entitlement.plan==='scale'?1000:entitlement.plan==='growth'?570:230};
+  return {...result,plan:entitlement.plan,trialStatus:entitlement.status,trialEndsAt:entitlement.trialEndsAt,staffLimit:entitlement.plan==='scale'?20:entitlement.plan==='growth'?12:5,jobsLimit:entitlement.plan==='scale'?1000:entitlement.plan==='growth'?570:230};
 }
 export function isPlanError(error: unknown) {
   return Boolean(error && typeof error === "object" && "message" in error &&

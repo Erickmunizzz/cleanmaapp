@@ -1,6 +1,8 @@
 import {supabase} from '@/integrations/supabase/client';
 export async function roleDestination(){
  const {data:{user},error}=await supabase.auth.getUser();if(error){if(error.status===401||error.status===403||error.name==='AuthSessionMissingError')return '/auth';throw error;}if(!user)return '/auth';
+ const {error:expiryError}=await supabase.rpc('refresh_my_trial_status' as never);
+ if(expiryError)throw expiryError;
  const {data,error:failure}=await supabase.rpc('current_subscription_access' as never);
  const access=data as unknown as {role:string;active:boolean}|null;
  if(failure)throw failure;

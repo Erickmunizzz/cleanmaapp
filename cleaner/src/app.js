@@ -1,4 +1,4 @@
-import brandLogo from '../../public/cleanma-logo.png';
+import brandLogo from '../../public/cleanma-logo.jpg';
 import {dayKey} from './supabase.js';
 import {useCleaner} from './use-cleaner.js';
 import {createPanels} from './panels.js';

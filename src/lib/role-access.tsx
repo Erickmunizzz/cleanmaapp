@@ -24,5 +24,5 @@ export function RoleGate({role,children}:{role:'owner'|'cleaner';children:React.
   return()=>{alive=false;clearInterval(timer);clearTimeout(authTimer);data.subscription.unsubscribe()};
  },[role,retry]);
  if(error)return <div role="alert" className="p-6">{error}<button className="ml-3 underline" onClick={()=>{setError('');setRetry(n=>n+1)}}>Retry</button></div>;
- return allowed?<>{children}</>:<div role="status" className="flex min-h-screen items-center justify-center bg-background"><div><img src="/cleanma-logo.png" alt="CleanMa" className="h-12 w-20 object-contain"/><p>Restoring your session…</p></div></div>;
+ return allowed?<>{children}</>:<div role="status" className="flex min-h-screen items-center justify-center bg-background"><div><img src="/cleanma-logo.jpg" alt="CleanMa" className="h-12 w-20 object-contain"/><p>Restoring your session…</p></div></div>;
 }
