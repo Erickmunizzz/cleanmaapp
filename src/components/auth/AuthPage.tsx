@@ -10,7 +10,14 @@ export function AuthPage({role='owner'}:{role?:'owner'|'cleaner'}) {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
   const [remember,setRemember]=useState(true);
-  useEffect(()=>{try{setEmail(localStorage.getItem('cleanma:last-email')||'');setRemember(localStorage.getItem('cleanma:remember-email')!=='false')}catch{}},[]);
+  useEffect(()=>{try{setEmail(localStorage.getItem('cleanma:last-email')||'');setRemember(localStorage.getItem('cleanma:remember-email')!=='false')}catch{};if(role==='owner'&&new URLSearchParams(location.search).get('mode')==='signup')setMode('signup')},[role]);
+  useEffect(()=>{
+    let active=true;
+    void roleDestination().then(destination=>{
+      if(active&&destination!=='/auth')window.location.replace(destination);
+    }).catch(()=>{/* Keep the login form available if session verification fails. */});
+    return()=>{active=false};
+  },[]);
   const [password, setPassword] = useState("");
   const [error,setError]=useState('');
   const [busy, setBusy] = useState(false);
