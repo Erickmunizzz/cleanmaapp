@@ -1,6 +1,6 @@
 import {paymentApi} from "@/lib/payment-api";
 import {PaymentConnections} from "./PaymentConnections";
-import {ClientMonthlySubscriptions} from "./ClientMonthlySubscriptions";
+import {CustomSubscriptionOwner} from "./CustomSubscriptionOwner";
 import { useSubscription } from "./SubscriptionProvider";
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
@@ -57,7 +57,7 @@ export function PaymentsPage() {
       <CollectFromClient key={`collect-${companyId}`} companyId={companyId} enabled={enabled} checking={plan.isPending} />
       <PayTeam key={`team-${companyId}`} companyId={companyId} enabled={enabled && plan.data === "scale"} />
     </div>
-    <ClientMonthlySubscriptions companyId={companyId} enabled={enabled} />
+    <CustomSubscriptionOwner companyId={companyId} enabled={enabled} />
     <section className={card} aria-labelledby="payments-faq">
       <h2 id="payments-faq" className="text-lg font-semibold">Frequently asked questions</h2>
       <div className="divide-y divide-border">

@@ -1,12 +1,22 @@
-import {createFileRoute} from '@tanstack/react-router';
+import {createFileRoute,Outlet,useRouterState} from '@tanstack/react-router';
 import {useEffect,useState,type FormEvent} from 'react';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
+import {CustomBuilder} from '@/components/subscriptions/CustomBuilder';
 
 type PublicPlan={id:string;company_name:string;name:string;description:string;monthly_price:string|number;
   cleans_per_month:number;fixed_day:string;fixed_time:string};
-export const Route=createFileRoute('/subscribe/$planId')({component:ClientSubscriptionPage});
+export const Route=createFileRoute('/subscribe/$planId')({component:SubscriptionEntry});
 const gbp=new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP'});
+
+function SubscriptionEntry(){
+  const {planId}=Route.useParams();
+  const managing=useRouterState({select:state=>state.location.pathname.endsWith('/manage')});
+  if(managing)return <Outlet/>;
+  if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(planId))
+    return <CustomBuilder slug={planId}/>;
+  return <ClientSubscriptionPage/>;
+}
 
 function ClientSubscriptionPage(){
   const {planId}=Route.useParams();

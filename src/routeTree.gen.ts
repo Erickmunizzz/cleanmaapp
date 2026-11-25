@@ -30,6 +30,7 @@ import { Route as AdminStorageRouteImport } from './routes/admin.storage'
 import { Route as CleanerLoginRouteImport } from './routes/cleaner.login'
 import { Route as SubscribePlanIdRouteImport } from './routes/subscribe.$planId'
 import { Route as PaymentsDemoLinkIdRouteImport } from './routes/payments.demo.$linkId'
+import { Route as SubscribePlanIdManageRouteImport } from './routes/subscribe.$planId.manage'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -136,6 +137,11 @@ const PaymentsDemoLinkIdRoute = PaymentsDemoLinkIdRouteImport.update({
   path: '/payments/demo/$linkId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SubscribePlanIdManageRoute = SubscribePlanIdManageRouteImport.update({
+  id: '/manage',
+  path: '/manage',
+  getParentRoute: () => SubscribePlanIdRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -156,9 +162,10 @@ export interface FileRoutesByFullPath {
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/storage': typeof AdminStorageRoute
   '/cleaner/login': typeof CleanerLoginRoute
-  '/subscribe/$planId': typeof SubscribePlanIdRoute
+  '/subscribe/$planId': typeof SubscribePlanIdRouteWithChildren
   '/admin/': typeof AdminIndexRoute
   '/payments/demo/$linkId': typeof PaymentsDemoLinkIdRoute
+  '/subscribe/$planId/manage': typeof SubscribePlanIdManageRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -178,9 +185,10 @@ export interface FileRoutesByTo {
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/storage': typeof AdminStorageRoute
   '/cleaner/login': typeof CleanerLoginRoute
-  '/subscribe/$planId': typeof SubscribePlanIdRoute
+  '/subscribe/$planId': typeof SubscribePlanIdRouteWithChildren
   '/admin': typeof AdminIndexRoute
   '/payments/demo/$linkId': typeof PaymentsDemoLinkIdRoute
+  '/subscribe/$planId/manage': typeof SubscribePlanIdManageRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -202,9 +210,10 @@ export interface FileRoutesById {
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/storage': typeof AdminStorageRoute
   '/cleaner/login': typeof CleanerLoginRoute
-  '/subscribe/$planId': typeof SubscribePlanIdRoute
+  '/subscribe/$planId': typeof SubscribePlanIdRouteWithChildren
   '/admin/': typeof AdminIndexRoute
   '/payments/demo/$linkId': typeof PaymentsDemoLinkIdRoute
+  '/subscribe/$planId/manage': typeof SubscribePlanIdManageRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -230,6 +239,7 @@ export interface FileRouteTypes {
     | '/subscribe/$planId'
     | '/admin/'
     | '/payments/demo/$linkId'
+    | '/subscribe/$planId/manage'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -252,6 +262,7 @@ export interface FileRouteTypes {
     | '/subscribe/$planId'
     | '/admin'
     | '/payments/demo/$linkId'
+    | '/subscribe/$planId/manage'
   id:
     | '__root__'
     | '/'
@@ -275,6 +286,7 @@ export interface FileRouteTypes {
     | '/subscribe/$planId'
     | '/admin/'
     | '/payments/demo/$linkId'
+    | '/subscribe/$planId/manage'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -287,7 +299,7 @@ export interface RootRouteChildren {
   FuncionarioRoute: typeof FuncionarioRoute
   PlanosRoute: typeof PlanosRoute
   SuspendedRoute: typeof SuspendedRoute
-  SubscribePlanIdRoute: typeof SubscribePlanIdRoute
+  SubscribePlanIdRoute: typeof SubscribePlanIdRouteWithChildren
   PaymentsDemoLinkIdRoute: typeof PaymentsDemoLinkIdRoute
 }
 
@@ -440,6 +452,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PaymentsDemoLinkIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/subscribe/$planId/manage': {
+      id: '/subscribe/$planId/manage'
+      path: '/manage'
+      fullPath: '/subscribe/$planId/manage'
+      preLoaderRoute: typeof SubscribePlanIdManageRouteImport
+      parentRoute: typeof SubscribePlanIdRoute
+    }
   }
 }
 
@@ -480,6 +499,18 @@ const CleanerRouteChildren: CleanerRouteChildren = {
 const CleanerRouteWithChildren =
   CleanerRoute._addFileChildren(CleanerRouteChildren)
 
+interface SubscribePlanIdRouteChildren {
+  SubscribePlanIdManageRoute: typeof SubscribePlanIdManageRoute
+}
+
+const SubscribePlanIdRouteChildren: SubscribePlanIdRouteChildren = {
+  SubscribePlanIdManageRoute: SubscribePlanIdManageRoute,
+}
+
+const SubscribePlanIdRouteWithChildren = SubscribePlanIdRoute._addFileChildren(
+  SubscribePlanIdRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRouteWithChildren,
@@ -490,7 +521,7 @@ const rootRouteChildren: RootRouteChildren = {
   FuncionarioRoute: FuncionarioRoute,
   PlanosRoute: PlanosRoute,
   SuspendedRoute: SuspendedRoute,
-  SubscribePlanIdRoute: SubscribePlanIdRoute,
+  SubscribePlanIdRoute: SubscribePlanIdRouteWithChildren,
   PaymentsDemoLinkIdRoute: PaymentsDemoLinkIdRoute,
 }
 export const routeTree = rootRouteImport

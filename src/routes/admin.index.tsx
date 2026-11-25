@@ -276,6 +276,12 @@ function Overview() {
         </div>
       </div>
 
+      <Link to="/admin/$section" params={{section:'payments'}} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4 text-sm shadow-[var(--shadow-card)]">
+        <span><strong className="block">Create my subscription link</strong>
+          <span className="text-muted-foreground">Let clients choose their visits, times and price per clean — with monthly payments through Stripe.</span></span>
+        <span className="inline-flex items-center gap-1 font-semibold text-primary">Open Payments <ArrowRight className="size-4"/></span>
+      </Link>
+
       <section aria-label="Operations summaries" className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
         {summaryCards.map((item) => {
           const Icon = ToneIcon[item.tone];
