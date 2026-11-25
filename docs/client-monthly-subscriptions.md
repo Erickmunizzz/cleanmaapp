@@ -5,9 +5,13 @@ not replace CleanMa's own 14-day trial, paywall, auth, or SaaS billing webhook.
 
 ## Before publishing
 
-1. Apply `supabase/migrations/20261125041316_owner_client_recurring_subscriptions.sql`
-   to a **staging** Supabase project first. This creates five new tables and
-   three service-role-only functions; it does not alter existing tables.
+1. Apply migrations to a **staging** Supabase project first. Because this
+   branch builds on `feature/trial-block`, first ensure
+   `supabase/migrations/20261125035033_company_trial_status_and_stripe_sync.sql`
+   is installed, then apply
+   `supabase/migrations/20261125041316_owner_client_recurring_subscriptions.sql`.
+   The latter creates five new tables and three service-role-only functions;
+   it does not alter existing tables.
 2. Set the app's server-side Vercel variables on the project `cleanmaapp`:
    `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`,
    `STRIPE_SECRET_KEY`, `STRIPE_PLATFORM_ACCOUNT_ID`, `STRIPE_CLIENT_ID`,
