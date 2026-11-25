@@ -64,7 +64,7 @@
       ]
     },
     {
-      "source": "/(favicon.ico|favicon.png|cleanma-logo.png)",
+      "source": "/(favicon.ico|favicon.png|cleanma-logo.png|cleanma-logo.jpg|cleanma-favicon.png)",
       "headers": [
         {
           "key": "Cache-Control",

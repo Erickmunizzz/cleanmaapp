@@ -1,5 +1,6 @@
 import {paymentApi} from "@/lib/payment-api";
 import {PaymentConnections} from "./PaymentConnections";
+import {ClientMonthlySubscriptions} from "./ClientMonthlySubscriptions";
 import { useSubscription } from "./SubscriptionProvider";
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
@@ -56,6 +57,7 @@ export function PaymentsPage() {
       <CollectFromClient key={`collect-${companyId}`} companyId={companyId} enabled={enabled} checking={plan.isPending} />
       <PayTeam key={`team-${companyId}`} companyId={companyId} enabled={enabled && plan.data === "scale"} />
     </div>
+    <ClientMonthlySubscriptions companyId={companyId} enabled={enabled} />
     <section className={card} aria-labelledby="payments-faq">
       <h2 id="payments-faq" className="text-lg font-semibold">Frequently asked questions</h2>
       <div className="divide-y divide-border">
@@ -81,6 +83,8 @@ function CollectFromClient({ companyId, enabled, checking }: { companyId: string
   const [description,setDescription]=useState("");
   const [requestId,setRequestId]=useState(()=>crypto.randomUUID());
   const [copyStatus, setCopyStatus] = useState("");
+  const [connectionError,setConnectionError]=useState('');
+  const [connecting,setConnecting]=useState(false);
   const customers = useQuery({
     queryKey: ["payment-customers", companyId],
     queryFn: () => readAllRows((a, b) => supabase.from("clients").select("id,name")
@@ -101,18 +105,23 @@ function CollectFromClient({ companyId, enabled, checking }: { companyId: string
     event.preventDefault();
     if (enabled && customer && valid && description.trim() && !create.isPending) create.mutate();
   }
+  async function connectStripe(){
+    setConnecting(true);setConnectionError('');
+    try{const result=await paymentApi<{url:string}>({action:'connect',provider:'stripe'});window.location.assign(result.url);}
+    catch(error){setConnectionError(error instanceof Error?error.message:'Stripe connection failed.');setConnecting(false);}
+  }
   return <section className={card}>
     <h2 className="flex items-center gap-2 text-lg font-semibold"><Link2 className="size-5 text-primary" />Collect from Client</h2>
     <form onSubmit={submit} className="space-y-4">
       <fieldset disabled={create.isPending} className="grid gap-3 sm:grid-cols-2">
-        <label className="grid gap-1 text-xs font-semibold uppercase">Client
-          <select className={select} required value={customer} onChange={event => { setCustomer(event.target.value); resetLink(); }}>
+        <label className="grid min-w-0 gap-1 text-xs font-semibold uppercase">Client
+          <select className={select+' w-full min-w-0 max-w-full'} required value={customer} onChange={event => { setCustomer(event.target.value); resetLink(); }}>
             <option value="">{customers.isPending ? "Loading clients…" : "Select client"}</option>
             {customers.data?.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}
           </select>
         </label>
-        <label className="grid gap-1 text-xs font-semibold uppercase">Amount (GBP)
-          <Input type="number" inputMode="decimal" min="1" max="1000000" step="0.01" required value={amount} placeholder="0.00"
+        <label className="grid min-w-0 gap-1 text-xs font-semibold uppercase">Amount (GBP)
+          <Input className="min-w-0 w-full" type="number" inputMode="decimal" min="1" max="1000000" step="0.01" required value={amount} placeholder="0.00"
             onChange={event => { setAmount(event.target.value); resetLink(); }} />
         </label>
         <label className="grid gap-1 text-xs font-semibold uppercase sm:col-span-2">Payment gateway
@@ -132,7 +141,11 @@ function CollectFromClient({ companyId, enabled, checking }: { companyId: string
         onClick={() => { if (!enabled) subscription.requireFeature("payments"); }}>
         {checking ? "Checking plan…" : !enabled ? lockedText : create.isPending ? "Generating…" : "Generate Stripe Payment Link + QR"}
       </Button>
-      {create.error && <p role="alert" className="text-sm text-destructive">{create.error.message}</p>}
+      {create.error && <div role="alert" className="space-y-2 text-sm text-destructive">
+        <p>{create.error.message==='CONNECT_STRIPE_FIRST'?'Connect your Stripe account before collecting client card payments.':create.error.message}</p>
+        {create.error.message==='CONNECT_STRIPE_FIRST'&&<Button type="button" variant="outline" disabled={connecting} onClick={()=>void connectStripe()}>{connecting?'Opening Stripe…':'Connect Stripe'}</Button>}
+        {connectionError&&<p>{connectionError}</p>}
+      </div>}
     </form>
     {create.data && <div className="space-y-3 rounded-xl border border-border p-4">
       <h3 className="font-semibold">Stripe payment link ready</h3>
