@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, expect, test, vi } from "vitest";
 import { ClientSubscriptions } from "@/components/admin/ClientSubscriptions";
+import type { StripeReadiness } from "@/components/admin/PaymentConnections";
 
 const { paymentApi, readAllRows } = vi.hoisted(() => ({ paymentApi: vi.fn(), readAllRows: vi.fn() }));
 vi.mock("@/lib/payment-api", () => ({ paymentApi }));
@@ -11,9 +12,9 @@ vi.mock("@/integrations/supabase/client", () => ({ supabase: {} }));
 const companyId = "00000000-0000-4000-8000-000000000001";
 const clientId = "00000000-0000-4000-8000-000000000002";
 
-function setup(canUse = true) {
+function setup(canUse = true, stripeReadiness: StripeReadiness = "unknown") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={queryClient}><ClientSubscriptions companyId={companyId} canUse={canUse} /></QueryClientProvider>);
+  return render(<QueryClientProvider client={queryClient}><ClientSubscriptions companyId={companyId} canUse={canUse} stripeReadiness={stripeReadiness} /></QueryClientProvider>);
 }
 
 beforeEach(() => { vi.resetAllMocks(); });
@@ -43,4 +44,18 @@ test("owner selects client and period, creates a recurring link, and can share t
   }));
   expect((await screen.findByRole("link", { name: "Open client checkout" })).getAttribute("href")).toBe("https://checkout.stripe.com/test-only");
   expect(screen.getByRole("button", { name: "Copy link" })).toBeTruthy();
+});
+
+
+test.each([
+  ["not-connected", /Connect your cleaning company/],
+  ["needs-onboarding", /Finish setting up your connected Stripe account/],
+] as const)("recurring checkout provides a setup path instead of generating a link when Stripe is %s", async (readiness, message) => {
+  paymentApi.mockResolvedValue({ enabled: true });
+  setup(true, readiness);
+  expect(await screen.findByText(message)).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Go to Stripe connection" }).getAttribute("href")).toBe("#payment-connections");
+  expect(screen.queryByRole("button", { name: "Create subscription link" })).toBeNull();
+  expect(paymentApi).toHaveBeenCalledTimes(1);
+  expect(readAllRows).not.toHaveBeenCalled();
 });

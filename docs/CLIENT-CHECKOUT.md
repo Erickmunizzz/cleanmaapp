@@ -2,8 +2,12 @@
 
 Owner → Finance → Payments:
 - **Collect from Client** still creates a one-off Stripe Checkout link and QR. New links require the payer's billing address. Stripe receives the 1% platform fee rounded to the nearest penny.
-- **Client subscriptions** (below the existing sections) prepares a monthly/yearly Checkout. The owner selects an active client, sets the GBP amount and description, and shares the link. The payer enters email, billing address and payment details in Stripe (not a service address). The platform receives 1% of each eligible paid subscription invoice, not a surcharge added to the buyer's total.
+- **Client subscriptions** (in its own card below Collect from Client and above the FAQ) prepares a monthly/yearly Checkout. The owner selects an active client, sets the GBP amount and description, and shares the link. The payer enters email, billing address and payment details in Stripe (not a service address). The platform receives 1% of each eligible paid subscription invoice, not a surcharge added to the buyer's total.
 - These are charges on the cleaning company's connected Stripe account. The company views payments, renewals, refunds and cancellations in its own Stripe Dashboard. The return URL doesn't confirm payment or settle a CleanMa invoice. The CleanMa platform account uses Stripe Balance and Connect application fee records for its revenue reconciliation.
+
+## If Stripe is not connected
+
+In **Payment & Accounting Connections**, select **Connect Stripe**, authorise the cleaning company's Stripe account, and return to the page. Use **Check status** to confirm payments are enabled and details submitted. Both link generators retain their server-side account checks. The platform’s own Stripe account cannot substitute for the company’s connected account. The live OAuth redirect URI is `https://cleanmaapp.com/api/stripe/connect/callback`; the existing live `STRIPE_CLIENT_ID` and `STRIPE_SECRET_KEY` must belong to the same platform.
 
 ## Before enabling recurring payments
 

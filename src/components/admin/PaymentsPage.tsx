@@ -1,6 +1,6 @@
 import {paymentApi} from "@/lib/payment-api";
 import {ClientSubscriptions} from "./ClientSubscriptions";
-import {PaymentConnections} from "./PaymentConnections";
+import { PaymentConnections, StripeSetupNotice, type StripeReadiness } from "./PaymentConnections";
 import { useSubscription } from "./SubscriptionProvider";
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
@@ -24,6 +24,11 @@ const fca = "https://www.fca.org.uk/firms/payment-services-regulations";
 export function PaymentsPage() {
   const subscription = useSubscription();
   const { data: { companyId } } = useSuspenseQuery(ownerContextOptions);
+  return <WorkspacePayments key={companyId} companyId={companyId} enabled={subscription.canUse("payments")} />;
+}
+
+function WorkspacePayments({ companyId, enabled }: { companyId: string; enabled: boolean }) {
+  const [stripeReadiness, setStripeReadiness] = useState<StripeReadiness>("unknown");
   const plan = useQuery({
     queryKey: ["payments-plan", companyId],
     queryFn: async () => {
@@ -32,7 +37,6 @@ export function PaymentsPage() {
       return data.plan;
     },
   });
-  const enabled = subscription.canUse("payments");
   return <main className="space-y-5">
     <header className="flex flex-wrap items-start justify-between gap-3">
       <div><h1 className="text-[28px] font-bold">Payments</h1>
@@ -52,9 +56,12 @@ export function PaymentsPage() {
         <li>See the estimated amount you receive after both fees.</li>
       </ol>
     </section>
-    <PaymentConnections />
+    <PaymentConnections onStripeReadiness={setStripeReadiness} />
     <div className="grid items-start gap-4 lg:grid-cols-2">
-      <CollectFromClient key={`collect-${companyId}`} companyId={companyId} enabled={enabled} checking={plan.isPending} />
+      <div className="min-w-0 space-y-4">
+        <CollectFromClient companyId={companyId} enabled={enabled} checking={plan.isPending} stripeReadiness={stripeReadiness} />
+        <ClientSubscriptions companyId={companyId} canUse={enabled} stripeReadiness={stripeReadiness} />
+      </div>
       <PayTeam key={`team-${companyId}`} companyId={companyId} enabled={enabled && plan.data === "scale"} />
     </div>
     <section className={card} aria-labelledby="payments-faq">
@@ -71,11 +78,10 @@ export function PaymentsPage() {
         </details>
       </div>
     </section>
-    <ClientSubscriptions key={companyId} companyId={companyId} canUse={enabled} />
   </main>;
 }
 
-function CollectFromClient({ companyId, enabled, checking }: { companyId: string; enabled: boolean; checking: boolean }) {
+function CollectFromClient({ companyId, enabled, checking, stripeReadiness }: { companyId: string; enabled: boolean; checking: boolean; stripeReadiness: StripeReadiness }) {
   const subscription = useSubscription();
   const [customer, setCustomer] = useState("");
   const [amount, setAmount] = useState("");
@@ -98,46 +104,56 @@ function CollectFromClient({ companyId, enabled, checking }: { companyId: string
       return result.url;
     },
   });
+  const setupStatus = create.error?.message === "CONNECT_STRIPE_FIRST" ? "not-connected"
+    : create.error?.message === "STRIPE_ACCOUNT_NOT_READY" ? "needs-onboarding" : stripeReadiness;
+  const needsStripeSetup = setupStatus === "not-connected" || setupStatus === "needs-onboarding";
+  const stripeBlocked = stripeReadiness === "not-connected" || stripeReadiness === "needs-onboarding";
   function resetLink() { create.reset(); setCopyStatus(""); setRequestId(crypto.randomUUID()); }
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (enabled && customer && valid && description.trim() && !create.isPending) create.mutate();
+    if (enabled && !stripeBlocked && customer && valid && description.trim() && !create.isPending) create.mutate();
   }
-  return <section className={`${card} @container/collect`}>
-    <h2 className="flex items-center gap-2 text-lg font-semibold"><Link2 className="size-5 text-primary" />Collect from Client</h2>
-    <form onSubmit={submit} className="space-y-4">
-      <fieldset disabled={create.isPending} className="grid w-full min-w-0 grid-cols-1 gap-3 @sm/collect:grid-cols-2">
-        <label className="grid min-w-0 gap-1 text-xs font-semibold uppercase">Client
-          <select className={select} required value={customer} onChange={event => { setCustomer(event.target.value); resetLink(); }}>
-            <option value="">{customers.isPending ? "Loading clients…" : "Select client"}</option>
-            {customers.data?.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}
-          </select>
-        </label>
-        <label className="grid min-w-0 gap-1 text-xs font-semibold uppercase">Amount (GBP)
-          <Input className="h-10 min-w-0 max-w-full" type="number" inputMode="decimal" min="1" max="1000000" step="0.01" required value={amount} placeholder="0.00"
-            onChange={event => { setAmount(event.target.value); resetLink(); }} />
-        </label>
-        <label className="col-span-full grid min-w-0 gap-1 text-xs font-semibold uppercase">Payment gateway
-          <select className={select} value={provider} onChange={event => { setProvider(event.target.value); resetLink(); }}>
-            <option value="stripe">Pay via Card (Stripe)</option><option value="gocardless" disabled>Direct Debit (GoCardless) — not configured</option>
-          </select>
-        </label>
-        <label className="col-span-full grid min-w-0 gap-1 text-xs font-semibold uppercase">Description<Input className="min-w-0 max-w-full" required maxLength={200} value={description} onChange={e=>{setDescription(e.target.value);resetLink()}} /></label>
-      </fieldset>
-      {customers.error && <p role="alert" className="text-sm text-destructive">{customers.error.message}</p>}
-      <dl className="space-y-2 rounded-xl border border-border bg-surface-2 p-4 text-sm">
-        {[["Client pays", gross], ["Gateway estimate (1.5% + 20p)", gateway], ["Platform Fee 1%", platform],
-          ["Estimated proceeds", valid ? gross - gateway - platform : 0]].map(([label, value]) =>
-          <div key={label} className="flex justify-between gap-3"><dt>{label}</dt><dd className="shrink-0 font-semibold tabular-nums">{valid ? money(Number(value)) : "—"}</dd></div>)}
-      </dl>
-      <Button type={enabled ? "submit" : "button"} className="w-full whitespace-normal" disabled={checking || (enabled && (!valid || !customer || create.isPending))}
-        onClick={() => { if (!enabled) subscription.requireFeature("payments"); }}>
-        {checking ? "Checking plan…" : !enabled ? lockedText : create.isPending ? "Generating…" : "Generate Stripe Payment Link + QR"}
-      </Button>
-      {create.error && <p role="alert" className="text-sm text-destructive">{create.error.message}</p>}
-    </form>
-    {create.data && <div className="space-y-3 rounded-xl border border-border p-4">
-      <h3 className="font-semibold">Stripe payment link ready</h3>
+  return <>
+    <section className={`${card} @container/collect`}>
+      <h2 className="flex items-center gap-2 text-lg font-semibold"><Link2 className="size-5 text-primary" />Collect from Client</h2>
+      <form onSubmit={submit} className="space-y-4">
+        <fieldset disabled={create.isPending} className="grid w-full min-w-0 grid-cols-1 gap-3 @sm/collect:grid-cols-2">
+          <label className="grid min-w-0 gap-1 text-xs font-semibold uppercase">Client
+            <select className={select} required value={customer} onChange={event => { setCustomer(event.target.value); resetLink(); }}>
+              <option value="">{customers.isPending ? "Loading clients…" : "Select client"}</option>
+              {customers.data?.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}
+            </select>
+          </label>
+          <label className="grid min-w-0 gap-1 text-xs font-semibold uppercase">Amount (GBP)
+            <Input className="h-10 min-w-0 max-w-full" type="number" inputMode="decimal" min="1" max="1000000" step="0.01" required value={amount} placeholder="0.00"
+              onChange={event => { setAmount(event.target.value); resetLink(); }} />
+          </label>
+          <label className="col-span-full grid min-w-0 gap-1 text-xs font-semibold uppercase">Payment gateway
+            <select className={select} value={provider} onChange={event => { setProvider(event.target.value); resetLink(); }}>
+              <option value="stripe">Pay via Card (Stripe)</option><option value="gocardless" disabled>Direct Debit (GoCardless) — not configured</option>
+            </select>
+          </label>
+          <label className="col-span-full grid min-w-0 gap-1 text-xs font-semibold uppercase">Description<Input className="min-w-0 max-w-full" required maxLength={200} value={description} onChange={e=>{setDescription(e.target.value);resetLink()}} /></label>
+        </fieldset>
+        {customers.error && <p role="alert" className="text-sm text-destructive">{customers.error.message}</p>}
+        <dl className="space-y-2 rounded-xl border border-border bg-surface-2 p-4 text-sm">
+          {[["Client pays", gross], ["Gateway estimate (1.5% + 20p)", gateway], ["Platform Fee 1%", platform],
+            ["Estimated proceeds", valid ? gross - gateway - platform : 0]].map(([label, value]) =>
+            <div key={label} className="flex justify-between gap-3"><dt>{label}</dt><dd className="shrink-0 font-semibold tabular-nums">{valid ? money(Number(value)) : "—"}</dd></div>)}
+        </dl>
+        <Button type={enabled ? "submit" : "button"} className="w-full whitespace-normal" disabled={checking || (enabled && (stripeBlocked || !valid || !customer || !description.trim() || create.isPending))}
+          onClick={() => { if (!enabled) subscription.requireFeature("payments"); }}>
+          {checking ? "Checking plan…" : !enabled ? lockedText : create.isPending ? "Generating…" : "Generate Stripe Payment Link + QR"}
+        </Button>
+        {enabled && needsStripeSetup && <StripeSetupNotice readiness={setupStatus} />}
+        {create.error && !["CONNECT_STRIPE_FIRST", "STRIPE_ACCOUNT_NOT_READY"].includes(create.error.message) &&
+          <p role="alert" className="text-sm text-destructive">{create.error.message === "STRIPE_ACCOUNT_MISMATCH"
+            ? "Could not verify your Stripe account. Check Payment & Accounting Connections."
+            : "Could not create the Stripe link. Check your details and try again."}</p>}
+      </form>
+    </section>
+    {create.data && <section className={card} aria-labelledby="stripe-payment-link-title">
+      <h3 id="stripe-payment-link-title" className="font-semibold">Stripe payment link ready</h3>
       <div className="w-fit rounded-lg bg-white p-3"><QRCodeSVG value={create.data} title="Stripe payment link QR code" size={144} /></div>
       <a href={create.data} target="_blank" rel="noreferrer" className="block break-all text-sm text-primary underline">{create.data}</a>
       <Button type="button" variant="outline" size="sm" onClick={async () => {
@@ -146,8 +162,8 @@ function CollectFromClient({ companyId, enabled, checking }: { companyId: string
       }}>Copy link</Button>
       <a className="block text-sm text-primary underline" href={`https://wa.me/?text=${encodeURIComponent(`Hello! Please pay ${money(gross)} for ${description} securely here: ${create.data}. Thank you!`)}`} target="_blank" rel="noopener noreferrer">Send via WhatsApp</a>
       <p role="status" className="text-sm text-muted-foreground">{copyStatus}</p>
-    </div>}
-  </section>;
+    </section>}
+  </>;
 }
 
 const londonMonth = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London", year: "numeric", month: "2-digit" });

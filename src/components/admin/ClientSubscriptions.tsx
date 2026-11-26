@@ -6,30 +6,30 @@ import { Input } from "@/components/ui/input";
 import { paymentApi } from "@/lib/payment-api";
 import { readAllRows } from "@/lib/supabase-pages";
 import { supabase } from "@/integrations/supabase/client";
+import { StripeSetupNotice, type StripeReadiness } from "./PaymentConnections";
 
 const messages: Record<string, string> = {
   CLIENT_SUBSCRIPTIONS_DISABLED: "Recurring checkout is not enabled for this environment.",
   CLIENT_NOT_AVAILABLE: "Select an active client from your workspace.",
-  CONNECT_STRIPE_FIRST: "Connect Stripe in Payment & Accounting Connections first.",
-  STRIPE_ACCOUNT_NOT_READY: "Finish Stripe onboarding and enable card payments on your connected account.",
   STRIPE_ACCOUNT_MISMATCH: "Verify the connected account in Payment & Accounting Connections.",
   INVALID_REQUEST: "Check the client, billing period, amount and description.",
 };
 const amountFormat = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" });
 const selectClass = "h-10 w-full min-w-0 rounded-xl border border-input bg-background px-3 text-sm";
 
-export function ClientSubscriptions({ companyId, canUse }: { companyId: string; canUse: boolean }) {
+export function ClientSubscriptions({ companyId, canUse, stripeReadiness = "unknown" }: { companyId: string; canUse: boolean; stripeReadiness?: StripeReadiness }) {
   const options = useQuery({
     queryKey: ["client-subscription-options", companyId],
     queryFn: () => paymentApi<{ enabled: boolean }>({ action: "client-subscription-options" }),
     enabled: canUse,
   });
   const enabled = canUse && options.data?.enabled === true;
+  const stripeBlocked = stripeReadiness === "not-connected" || stripeReadiness === "needs-onboarding";
   const clients = useQuery({
     queryKey: ["payment-customers", companyId],
     queryFn: () => readAllRows((a, b) => supabase.from("clients").select("id,name")
       .eq("company_id", companyId).eq("is_archived", false).order("name").order("id").range(a, b)),
-    enabled,
+    enabled: enabled && !stripeBlocked,
   });
   const [client, setClient] = useState("");
   const [interval, setInterval] = useState<"month" | "year">("month");
@@ -52,7 +52,7 @@ export function ClientSubscriptions({ companyId, canUse }: { companyId: string; 
 
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!enabled || !valid || !client || !description.trim() || busy || url) return;
+    if (!enabled || stripeBlocked || !valid || !client || !description.trim() || busy || url) return;
     setBusy(true);
     setError("");
     try {
@@ -81,6 +81,7 @@ export function ClientSubscriptions({ companyId, canUse }: { companyId: string; 
     {!canUse ? <p className="text-sm text-muted-foreground">Available on Growth and Scale.</p>
       : options.isPending ? <p role="status" className="text-sm text-muted-foreground">Checking recurring checkout…</p>
       : options.isError ? <p role="alert" className="text-sm text-destructive">Could not verify recurring checkout. <button type="button" className="underline" onClick={() => void options.refetch()}>Try again</button></p>
+      : stripeBlocked ? <StripeSetupNotice readiness={stripeReadiness} />
       : !enabled ? <p className="rounded-xl border border-border bg-surface-2 p-3 text-sm text-muted-foreground">Recurring checkout is not enabled yet. To send a one-time payment link, use Collect from Client above.</p>
       : <form onSubmit={create} className="space-y-3">
         <fieldset disabled={busy} className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2">
@@ -109,7 +110,9 @@ export function ClientSubscriptions({ companyId, canUse }: { companyId: string; 
           <p className="text-sm text-muted-foreground">{valid ? `${amountFormat.format(pence / 100)} per ${interval}. ` : ""}Stripe processing fees are separate.</p>
           <Button type="submit" disabled={busy || !client || !valid || !description.trim() || !!url}>{busy ? "Creating link…" : url ? "Link ready" : "Create subscription link"}</Button>
         </div>
-        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+        {error === "CONNECT_STRIPE_FIRST" || error === "STRIPE_ACCOUNT_NOT_READY"
+          ? <StripeSetupNotice readiness={error === "CONNECT_STRIPE_FIRST" ? "not-connected" : "needs-onboarding"} />
+          : error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       </form>}
     {enabled && url && <div className="space-y-2 rounded-xl border border-border p-3">
       <a href={url} className="inline-flex items-center gap-2 text-sm text-primary underline" target="_blank" rel="noreferrer">Open client checkout <ExternalLink aria-hidden="true" className="size-4" /></a>

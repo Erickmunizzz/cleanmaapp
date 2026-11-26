@@ -19,7 +19,19 @@ const messages: Record<string, string> = {
 };
 const errorText = (error: unknown) => error instanceof Error ? messages[error.message] ?? error.message : 'Connection failed. Please try again.';
 
-export function PaymentConnections() {
+export type StripeReadiness = 'unknown' | 'not-connected' | 'needs-onboarding' | 'ready';
+
+export function StripeSetupNotice({ readiness }: { readiness: StripeReadiness }) {
+  if (readiness !== 'not-connected' && readiness !== 'needs-onboarding') return null;
+  return <div className="space-y-1 rounded-xl border border-border bg-surface-2 p-3 text-sm">
+    <p role="status">{readiness === 'not-connected'
+      ? 'Connect your cleaning company’s Stripe account to create a checkout link.'
+      : 'Finish setting up your connected Stripe account and enable card payments before creating a link.'}</p>
+    <a className="inline-block font-semibold text-primary underline" href="#payment-connections">Go to Stripe connection</a>
+  </div>;
+}
+
+export function PaymentConnections({ onStripeReadiness }: { onStripeReadiness?: (status: StripeReadiness) => void } = {}) {
   const [rows, setRows] = useState<Connection[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -39,6 +51,13 @@ export function PaymentConnections() {
     return () => { active = false; };
   }, []);
 
+  useEffect(() => {
+    const stripe = rows.find(row => row.provider === 'stripe');
+    onStripeReadiness?.(loading || !stripe || stripe.status_unavailable ? 'unknown'
+      : !stripe.connected ? 'not-connected'
+      : stripe.charges_enabled && stripe.details_submitted ? 'ready' : 'needs-onboarding');
+  }, [loading, onStripeReadiness, rows]);
+
   async function refreshStatus() {
     setLoading(true);
     setError('');
@@ -57,9 +76,9 @@ export function PaymentConnections() {
     } catch (reason) { setError(errorText(reason)); setBusy(''); }
   }
 
-  return <section className="space-y-4 rounded-xl border border-border bg-card p-4">
+  return <section id="payment-connections" tabIndex={-1} aria-labelledby="payment-connections-title" className="scroll-mt-24 space-y-4 rounded-xl border border-border bg-card p-4">
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <h3 className="font-semibold">Payment &amp; Accounting Connections</h3>
+      <h3 id="payment-connections-title" className="font-semibold">Payment &amp; Accounting Connections</h3>
       <Button type="button" variant="ghost" disabled={loading || !!busy} onClick={() => void refreshStatus()}>Check status</Button>
     </div>
     {['stripe', 'xero'].map(provider => {
