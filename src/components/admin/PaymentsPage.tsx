@@ -1,4 +1,5 @@
 import {paymentApi} from "@/lib/payment-api";
+import {ClientSubscriptions} from "./ClientSubscriptions";
 import {PaymentConnections} from "./PaymentConnections";
 import { useSubscription } from "./SubscriptionProvider";
 import { useState, type FormEvent } from "react";
@@ -70,6 +71,7 @@ export function PaymentsPage() {
         </details>
       </div>
     </section>
+    <ClientSubscriptions key={companyId} companyId={companyId} canUse={enabled} />
   </main>;
 }
 
