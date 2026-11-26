@@ -14,7 +14,7 @@ import { readAllRows } from "@/lib/supabase-pages";
 const formatter = new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" });
 const money = (pence: number) => formatter.format(pence / 100);
 const card = "min-w-0 space-y-4 rounded-2xl border border-border bg-card p-5 shadow-card";
-const select = "h-10 rounded-xl border border-input bg-background px-3 text-sm";
+const select = "h-10 w-full min-w-0 max-w-full truncate rounded-xl border border-input bg-background px-3 text-sm";
 const lockedText = "Upgrade to Growth or Scale to unlock";
 const stripePricing = "https://stripe.com/gb/pricing";
 const goCardlessPricing = "https://gocardless.com/pricing/";
@@ -101,26 +101,26 @@ function CollectFromClient({ companyId, enabled, checking }: { companyId: string
     event.preventDefault();
     if (enabled && customer && valid && description.trim() && !create.isPending) create.mutate();
   }
-  return <section className={card}>
+  return <section className={`${card} @container/collect`}>
     <h2 className="flex items-center gap-2 text-lg font-semibold"><Link2 className="size-5 text-primary" />Collect from Client</h2>
     <form onSubmit={submit} className="space-y-4">
-      <fieldset disabled={create.isPending} className="grid gap-3 sm:grid-cols-2">
-        <label className="grid gap-1 text-xs font-semibold uppercase">Client
+      <fieldset disabled={create.isPending} className="grid w-full min-w-0 grid-cols-1 gap-3 @sm/collect:grid-cols-2">
+        <label className="grid min-w-0 gap-1 text-xs font-semibold uppercase">Client
           <select className={select} required value={customer} onChange={event => { setCustomer(event.target.value); resetLink(); }}>
             <option value="">{customers.isPending ? "Loading clients…" : "Select client"}</option>
             {customers.data?.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}
           </select>
         </label>
-        <label className="grid gap-1 text-xs font-semibold uppercase">Amount (GBP)
-          <Input type="number" inputMode="decimal" min="1" max="1000000" step="0.01" required value={amount} placeholder="0.00"
+        <label className="grid min-w-0 gap-1 text-xs font-semibold uppercase">Amount (GBP)
+          <Input className="h-10 min-w-0 max-w-full" type="number" inputMode="decimal" min="1" max="1000000" step="0.01" required value={amount} placeholder="0.00"
             onChange={event => { setAmount(event.target.value); resetLink(); }} />
         </label>
-        <label className="grid gap-1 text-xs font-semibold uppercase sm:col-span-2">Payment gateway
+        <label className="col-span-full grid min-w-0 gap-1 text-xs font-semibold uppercase">Payment gateway
           <select className={select} value={provider} onChange={event => { setProvider(event.target.value); resetLink(); }}>
             <option value="stripe">Pay via Card (Stripe)</option><option value="gocardless" disabled>Direct Debit (GoCardless) — not configured</option>
           </select>
         </label>
-        <label className="grid gap-1 text-xs font-semibold uppercase sm:col-span-2">Description<Input required maxLength={200} value={description} onChange={e=>{setDescription(e.target.value);resetLink()}} /></label>
+        <label className="col-span-full grid min-w-0 gap-1 text-xs font-semibold uppercase">Description<Input className="min-w-0 max-w-full" required maxLength={200} value={description} onChange={e=>{setDescription(e.target.value);resetLink()}} /></label>
       </fieldset>
       {customers.error && <p role="alert" className="text-sm text-destructive">{customers.error.message}</p>}
       <dl className="space-y-2 rounded-xl border border-border bg-surface-2 p-4 text-sm">
