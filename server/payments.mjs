@@ -2,8 +2,8 @@ import {randomBytes,createHash,createCipheriv,createDecipheriv,createHmac,timing
 export const origin='https://cleanmaapp.com';
 export const catalog={starter:{month:['price_1UbwFxFn9iiryRd5VAqtdCnN',8999],year:['price_1UbwGYFn9iiryRd5fnYR3I2t',92870]},growth:{month:['price_1UbwGHFn9iiryRd5nOnv4epK',17999],year:['price_1UbwGeFn9iiryRd5uB6PCo8F',185750]},scale:{month:['price_1UbwGNFn9iiryRd530SxIUHd',29999],year:['price_1UbwGmFn9iiryRd5VlPYJsdq',309590]}};
 export function env(k){const v=process.env[k];if(!v)throw new Error('CONFIGURATION_REQUIRED');return v;}
-export async function request(url,init={}){const r=await fetch(url,{...init,redirect:'error',signal:AbortSignal.timeout(15000)});const body=await r.json();if(!r.ok)throw new Error('PROVIDER_REQUEST_FAILED');return body;}
-export function db(action,payload={}){return request(env('SUPABASE_URL')+'/rest/v1/rpc/cleanma_payment_store',{method:'POST',headers:{apikey:env('SUPABASE_SERVICE_ROLE_KEY'),Authorization:'Bearer '+env('SUPABASE_SERVICE_ROLE_KEY'),'Content-Type':'application/json'},body:JSON.stringify({action,payload})});}
+export async function request(url,init={},knownErrors=[]){const r=await fetch(url,{...init,redirect:'error',signal:AbortSignal.timeout(15000)});const body=await r.json();if(!r.ok)throw new Error(knownErrors.includes(body?.message)?body.message:'PROVIDER_REQUEST_FAILED');return body;}
+export function db(action,payload={}){return request(env('SUPABASE_URL')+'/rest/v1/rpc/cleanma_payment_store',{method:'POST',headers:{apikey:env('SUPABASE_SERVICE_ROLE_KEY'),Authorization:'Bearer '+env('SUPABASE_SERVICE_ROLE_KEY'),'Content-Type':'application/json'},body:JSON.stringify({action,payload})},['CHECKOUT_PENDING','SUBSCRIPTION_EXISTS','SUBSCRIPTION_CONFLICT','UNKNOWN_CHECKOUT','INVALID_SUBSCRIPTION_SNAPSHOT']);}
 export async function owner(req){const token=req.headers.authorization;if(!/^Bearer [\w.-]+$/.test(token||''))throw new Error('UNAUTHORISED');const headers={apikey:env('SUPABASE_ANON_KEY'),Authorization:token};const user=await request(env('SUPABASE_URL')+'/auth/v1/user',{headers});const rows=await request(env('SUPABASE_URL')+'/rest/v1/profiles?select=id,company_id,role,is_active&id=eq.'+encodeURIComponent(user.id),{headers});const profile=rows[0];if(!profile||profile.role!=='owner'||!profile.is_active||!profile.company_id)throw new Error('OWNER_REQUIRED');return {user,company:profile.company_id};}
 export async function stripe(path,data,account,idempotency){const headers={Authorization:'Bearer '+env('STRIPE_SECRET_KEY'),'Stripe-Version':'2026-08-26.dahlia'};if(account)headers['Stripe-Account']=account;if(idempotency)headers['Idempotency-Key']=idempotency;let init={headers};if(data){headers['Content-Type']='application/x-www-form-urlencoded';init={method:'POST',headers,body:new URLSearchParams(data)};}return request('https://api.stripe.com/v1/'+path,init);}
 export async function platform(){const a=await stripe('account');if(a.id!==(process.env.STRIPE_PLATFORM_ACCOUNT_ID||'acct_1T56IvFn9iiryRd5'))throw new Error('WRONG_PLATFORM_ACCOUNT');return a;}
@@ -21,8 +21,33 @@ export function hasIntegrationAccess(subscription, now=Date.now()) {
  return status==='trialing' && plan==='growth' && Number.isFinite(Date.parse(subscription.trial_ends_at)) && Date.parse(subscription.trial_ends_at)>now;
 }
 export async function paid(company){const subscription=await db('subscription',{company});if(!hasIntegrationAccess(subscription))throw new Error('GROWTH_OR_SCALE_REQUIRED');}
-export async function checkout(ctx,input){const price=catalog[input.plan]?.[input.interval];if(!price||['amount','price','price_id','currency','company_id','user_id'].some(k=>k in input))throw new Error('INVALID_REQUEST');await platform();const p=await stripe('prices/'+price[0]);if(!p.active||p.currency!=='gbp'||p.unit_amount!==price[1]||p.recurring?.interval!==input.interval||p.recurring?.interval_count!==1)throw new Error('INVALID_PRICE');const existing=await db('binding',{company:ctx.company});if(existing&&['active','past_due'].includes(existing.status)){if(!process.env.STRIPE_BILLING_PORTAL_CONFIG)throw new Error('CONFIGURATION_REQUIRED');return {url:(await stripe('billing_portal/sessions',{customer:existing.customer_id,return_url:origin+'/planos',...(process.env.STRIPE_BILLING_PORTAL_CONFIG?{configuration:process.env.STRIPE_BILLING_PORTAL_CONFIG}:{})})).url};}const claim=await db('claim',{company:ctx.company,user:ctx.user.id,plan:input.plan,interval:input.interval,price:price[0]});
-const metadata={user_id:ctx.user.id,company_id:ctx.company,email:ctx.user.email,plan_tier:input.plan,claim_id:claim.id};const data={mode:'subscription',currency:'gbp','line_items[0][price]':price[0],'line_items[0][quantity]':'1',customer_email:ctx.user.email,client_reference_id:claim.id,success_url:origin+'/planos?checkout=returned',cancel_url:origin+'/planos',};for(const [k,v]of Object.entries(metadata)){data[`metadata[${k}]`]=v;data[`subscription_data[metadata][${k}]`]=v;}const session=await stripe('checkout/sessions',data,undefined,'cleanma-sub-'+claim.id);return {url:session.url};}
+export async function checkout(ctx,input) {
+ if(!input||!Object.hasOwn(catalog,input.plan)||!['month','year'].includes(input.interval)||['amount','price','price_id','currency','company_id','user_id'].some(k=>k in input))throw new Error('INVALID_REQUEST');
+ const price=catalog[input.plan][input.interval];
+ await platform();
+ const existing=await db('binding',{company:ctx.company});
+ if(existing&&['active','past_due'].includes(existing.status)){
+  const session=await stripe('billing_portal/sessions',{
+   customer:existing.customer_id,return_url:origin+'/planos',configuration:env('STRIPE_BILLING_PORTAL_CONFIG'),
+  });
+  if(!session?.url)throw new Error('PROVIDER_REQUEST_FAILED');
+  return {url:session.url};
+ }
+ const p=await stripe('prices/'+price[0]);
+ if(!p.active||p.currency!=='gbp'||p.unit_amount!==price[1]||p.recurring?.interval!==input.interval||
+    p.recurring?.interval_count!==1)throw new Error('INVALID_PRICE');
+ const claim=await db('claim',{company:ctx.company,user:ctx.user.id,plan:input.plan,interval:input.interval,price:price[0]});
+ const metadata={user_id:ctx.user.id,company_id:ctx.company,email:ctx.user.email,plan_tier:input.plan,claim_id:claim.id};
+ const data={
+  mode:'subscription',currency:'gbp','line_items[0][price]':price[0],'line_items[0][quantity]':'1',
+  customer_email:ctx.user.email,client_reference_id:claim.id,
+  success_url:origin+'/planos?checkout=returned',cancel_url:origin+'/planos',
+ };
+ for(const [k,v]of Object.entries(metadata)){data[`metadata[${k}]`]=v;data[`subscription_data[metadata][${k}]`]=v;}
+ const session=await stripe('checkout/sessions',data,undefined,'cleanma-sub-'+claim.id);
+ if(!session?.url)throw new Error('PROVIDER_REQUEST_FAILED');
+ return {url:session.url};
+}
 export async function quickLink(ctx,input){await paid(ctx.company);if(input.gateway!=='stripe')throw new Error('GATEWAY_NOT_CONFIGURED');if(!Number.isInteger(input.amount)||input.amount<100||input.amount>100000000||typeof input.description!=='string'||!input.description.trim()||input.description.length>200||!/^[0-9a-f-]{36}$/i.test(input.request_id||''))throw new Error('INVALID_REQUEST');await platform();const connection=await expressStore('get',ctx);if(!connection?.stripe_account_id)throw new Error('CONNECT_STRIPE_FIRST');const account=await stripe('accounts/'+connection.stripe_account_id);assertConnectedAccount(account,ctx);if(!account.charges_enabled||!account.details_submitted)throw new Error('STRIPE_ACCOUNT_NOT_READY');const fee=Math.round(input.amount/100);const session=await stripe('checkout/sessions',{mode:'payment',billing_address_collection:'required',currency:'gbp','payment_method_types[0]':'card','line_items[0][price_data][currency]':'gbp','line_items[0][price_data][unit_amount]':String(input.amount),'line_items[0][price_data][product_data][name]':input.description.trim(),'line_items[0][quantity]':'1','payment_intent_data[application_fee_amount]':String(fee),'metadata[company_id]':ctx.company,'metadata[user_id]':ctx.user.id,success_url:origin+'/client-payment-result?status=returned',cancel_url:origin+'/client-payment-result?status=cancelled'},connection.stripe_account_id,'cleanma-charge-'+ctx.company+'-'+input.request_id);return {url:session.url,application_fee_amount:fee};}
 export const clientSubscriptionsEnabled = () => process.env.CLEANMA_CLIENT_SUBSCRIPTIONS_ENABLED === 'true';
 

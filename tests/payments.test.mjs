@@ -237,3 +237,139 @@ test('client recurring requires owner, approved origin and active card capabilit
  assert.deepEqual(await send('https://cleanmaapp.com',{action:'client-subscription-options'}),[200,{enabled:true}]);
  assert.deepEqual(await send('https://cleanmaapp.com'),[400,{error:'STRIPE_ACCOUNT_NOT_READY'}]);
 });
+
+test('SaaS Checkout charges the platform in GBP and leaves payment methods to the Dashboard', async t => {
+ const calls=[];
+ t.mock.method(global,'fetch',async(url,init)=>{
+  calls.push({url,init});
+  if(url.endsWith('/account'))return Response.json({id:'acct_1T56IvFn9iiryRd5'});
+  if(url.endsWith('/prices/price_1UbwGeFn9iiryRd5uB6PCo8F'))return Response.json({active:true,currency:'gbp',unit_amount:185750,recurring:{interval:'year',interval_count:1}});
+  if(url.endsWith('/cleanma_payment_store')) {
+   const {action}=JSON.parse(init.body);
+   return Response.json(action==='binding'?null:{id:'11111111-1111-4111-8111-111111111111'});
+  }
+  assert.ok(url.endsWith('/checkout/sessions'));
+  return Response.json({url:'https://checkout.stripe.com/test-only'});
+ });
+ assert.deepEqual(await checkout(context,{plan:'growth',interval:'year'}),{url:'https://checkout.stripe.com/test-only'});
+ const call=calls.at(-1).init;
+ assert.equal(call.headers['Stripe-Account'],undefined);
+ assert.equal(call.body.get('mode'),'subscription');
+ assert.equal(call.body.get('currency'),'gbp');
+ assert.equal(call.body.get('line_items[0][price]'),'price_1UbwGeFn9iiryRd5uB6PCo8F');
+ assert.equal(call.body.get('subscription_data[application_fee_percent]'),null);
+ assert.equal(call.body.get('payment_method_types[0]'),null);
+});
+
+test('past-due SaaS subscription opens the existing platform Customer Portal without a new Checkout', async t => {
+ const before=process.env.STRIPE_BILLING_PORTAL_CONFIG;
+ process.env.STRIPE_BILLING_PORTAL_CONFIG='bpc_test';
+ t.after(()=>{if(before===undefined)delete process.env.STRIPE_BILLING_PORTAL_CONFIG;else process.env.STRIPE_BILLING_PORTAL_CONFIG=before;});
+ t.mock.method(global,'fetch',async(url,init)=>{
+  if(url.endsWith('/account'))return Response.json({id:'acct_1T56IvFn9iiryRd5'});
+  if(url.endsWith('/cleanma_payment_store')) {
+   assert.equal(JSON.parse(init.body).action,'binding');
+   return Response.json({status:'past_due',customer_id:'cus_retry'});
+  }
+  assert.ok(url.endsWith('/billing_portal/sessions'));
+  assert.equal(init.headers['Stripe-Account'],undefined);
+  assert.equal(init.body.get('customer'),'cus_retry');
+  assert.equal(init.body.get('configuration'),'bpc_test');
+  assert.equal(init.body.get('return_url'),'https://cleanmaapp.com/planos');
+  return Response.json({url:'https://billing.stripe.com/test-only'});
+ });
+ assert.deepEqual(await checkout(context,{plan:'starter',interval:'month'}),{url:'https://billing.stripe.com/test-only'});
+});
+
+test('SaaS signed webhooks reconcile payment, renewal, failure, terminal and retry statuses', async t => {
+ const {default:handler}=await import('../api/stripe-webhook.js');
+ const before=process.env.STRIPE_WEBHOOK_SECRET;
+ process.env.STRIPE_WEBHOOK_SECRET='webhook-test-only';
+ t.after(()=>{if(before===undefined)delete process.env.STRIPE_WEBHOOK_SECRET;else process.env.STRIPE_WEBHOOK_SECRET=before;});
+ const writes=[];
+ let period=1796100000;
+ let subscriptionStatus='incomplete';
+ let invoiceStatus='open';
+ let lastInvoice='in_latest';
+ let attempt=0;
+ let rejectStore=false;
+ t.mock.method(global,'fetch',async(url,init)=>{
+  const path=new URL(url).pathname;
+  if(path.endsWith('/subscriptions/sub_saas')){
+   assert.equal(new URL(url).searchParams.get('expand[]'),'latest_invoice');
+   return Response.json({
+    id:'sub_saas',customer:{id:'cus_1'},status:subscriptionStatus,latest_invoice:{id:lastInvoice,status:invoiceStatus},
+    cancel_at_period_end:subscriptionStatus==='active',
+    metadata:{claim_id:'11111111-1111-4111-8111-111111111111',company_id:context.company},
+    items:{data:[{quantity:1,current_period_end:period,price:{
+     id:'price_1UbwFxFn9iiryRd5VAqtdCnN',currency:'gbp',unit_amount:8999,recurring:{interval:'month',interval_count:1},
+    }}]},
+   });
+  }
+  assert.ok(path.endsWith('/cleanma_payment_store'));
+  const body=JSON.parse(init.body);
+  assert.equal(body.action,'apply_subscription');
+  if(rejectStore)return Response.json({}, {status:503});
+  writes.push(body.payload);
+  return Response.json({});
+ });
+ async function send(type,object,options={}) {
+  const created=Math.floor(Date.now()/1000);
+  const raw=Buffer.from(JSON.stringify({id:'evt_'+(++attempt),created,type,data:{object},...options}));
+  const signature=createHmac('sha256','webhook-test-only').update(created+'.').update(raw).digest('hex');
+  const req={method:'POST',headers:{'stripe-signature':`t=${created},v1=${signature}`},async *[Symbol.asyncIterator](){yield raw;}};
+  const res={setHeader(){},end(value){this.result=JSON.parse(value);}};
+  await handler(req,res);
+  return res;
+ }
+ assert.equal((await send('checkout.session.completed',{mode:'subscription',subscription:'sub_saas'})).statusCode,200);
+ assert.equal(writes.at(-1).status,'incomplete');
+ assert.equal(writes.at(-1).price_id,'price_1UbwFxFn9iiryRd5VAqtdCnN');
+ subscriptionStatus='active';invoiceStatus='paid';
+ const invoice={id:'in_latest',parent:{subscription_details:{subscription:{id:'sub_saas'}}}};
+ assert.equal((await send('invoice.paid',invoice)).statusCode,200);
+ assert.equal(writes.at(-1).status,'active');
+ assert.equal(writes.at(-1).period_end,new Date(period*1000).toISOString());
+
+ // Active, with period-end cancellation scheduled, still retains the paid period.
+ await send('customer.subscription.updated',{id:'sub_saas'});
+ assert.equal(writes.at(-1).status,'active');
+ period+=30*86400;
+ lastInvoice='in_renewal';
+ await send('invoice.paid',{...invoice,id:lastInvoice});
+ assert.equal(writes.at(-1).period_end,new Date(period*1000).toISOString());
+
+ // An out-of-order failure for a prior invoice cannot revoke a newer paid invoice.
+ await send('invoice.payment_failed',invoice);
+ assert.equal(writes.at(-1).status,'active');
+ invoiceStatus='open';subscriptionStatus='past_due';
+ await send('invoice.payment_failed',{...invoice,id:lastInvoice});
+ assert.equal(writes.at(-1).status,'past_due');
+ subscriptionStatus='unpaid';
+ await send('customer.subscription.updated',{id:'sub_saas'});
+ assert.equal(writes.at(-1).status,'past_due');
+ subscriptionStatus='active';invoiceStatus='paid';
+ await send('invoice.paid',{...invoice,id:lastInvoice});
+ assert.equal(writes.at(-1).status,'active');
+ subscriptionStatus='canceled';period=null;
+ await send('customer.subscription.deleted',{id:'sub_saas'});
+ assert.equal(writes.at(-1).status,'cancelled');
+ assert.equal(writes.at(-1).period_end,null);
+ const writeCount=writes.length;
+ await send('invoice.paid',{id:'in_standalone'});
+ await send('invoice.paid',invoice,{account:'acct_connected'});
+ assert.equal(writes.length,writeCount);
+ rejectStore=true;
+ t.mock.method(console,'error',()=>{});
+ assert.equal((await send('customer.subscription.deleted',{id:'sub_saas'})).statusCode,503);
+});
+
+test('expired Stripe Connect callback offers retry on the canonical admin settings route without leaking the code', async () => {
+ const {default:callback}=await import('../api/stripe/connect/callback.js');
+ const headers={};
+ const res={setHeader(name,value){headers[name]=value;},end(){}};
+ await callback({method:'GET',headers:{},url:'/api/stripe/connect/callback?code=private-code&state='+'a'.repeat(64)},res);
+ assert.equal(res.statusCode,303);
+ assert.equal(headers.Location,'https://cleanmaapp.com/admin/settings?finance=integrations&integration=stripe_expired');
+ assert.equal(headers['Cache-Control'],'no-store');
+});

@@ -43,6 +43,9 @@ export function PaymentConnections({ onStripeReadiness }: { onStripeReadiness?: 
     const outcome = new URLSearchParams(window.location.search).get('integration');
     if (outcome === 'stripe_failed') setReturnNotice('Stripe could not be connected. Try connecting again.');
     if (outcome === 'stripe_cancelled') setReturnNotice('Stripe authorisation was cancelled.');
+    if (outcome === 'stripe_expired') setReturnNotice('The connection expired or was opened in another browser. Start again here and finish in the same browser.');
+    if (outcome === 'stripe_account_invalid') setReturnNotice('Select the independent Stripe account of your cleaning business, not the CleanMa platform account.');
+    if (outcome === 'stripe_config_required') setReturnNotice('CleanMa could not verify its Stripe platform settings. Contact CleanMa support before trying again.');
     void paymentApi<Connection[]>({action: 'status'}).then(result => {
       if (active) setRows(result);
     }).catch(reason => {

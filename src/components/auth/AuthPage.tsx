@@ -1,5 +1,7 @@
 import {authTimeout} from '@/lib/auth-timeout';
 import {roleDestination} from '@/lib/role-destination';
+import {ownerLanding,ownerSignupKey,ownerSignupParameters} from '@/lib/owner-signup';
+import { PasswordRecoveryLink } from '@/components/auth/PasswordRecovery';
 import {AuthLegalFooter} from '@/components/legal/LegalDocuments';
 import {useEffect,useState} from 'react';
 import {toast} from 'sonner';
@@ -13,11 +15,12 @@ export function AuthPage({role='owner'}:{role?:'owner'|'cleaner'}) {
   useEffect(()=>{try{setEmail(localStorage.getItem('cleanma:last-email')||'');setRemember(localStorage.getItem('cleanma:remember-email')!=='false')}catch{};if(role==='owner'&&new URLSearchParams(location.search).get('mode')==='signup')setMode('signup')},[role]);
   useEffect(()=>{
     let active=true;
-    void roleDestination().then(destination=>{
-      if(active&&destination!=='/auth')window.location.replace(destination);
-    }).catch(()=>{/* Keep the login form available if session verification fails. */});
+    void finishSignIn(role,activeCheck).catch(reason=>{
+      if(active&&new URLSearchParams(window.location.search).get('confirmed')==='1')setError(authError(reason));
+    });
+    function activeCheck(){return active}
     return()=>{active=false};
-  },[]);
+  },[role]);
   const [password, setPassword] = useState("");
   const [error,setError]=useState('');
   const [busy, setBusy] = useState(false);
@@ -28,26 +31,16 @@ export function AuthPage({role='owner'}:{role?:'owner'|'cleaner'}) {
     setError('');
     try{localStorage.setItem('cleanma:remember-email',String(remember));if(remember)localStorage.setItem('cleanma:last-email',email.trim());else localStorage.removeItem('cleanma:last-email')}catch{}
     try{
-    const res = await authTimeout(mode==='signin'?supabase.auth.signInWithPassword({email,password}):supabase.auth.signUp({email,password,options:{emailRedirectTo:window.location.href}}));
-    if(res.error){if(res.error.code==='invalid_credentials')throw Error('Email ou senha incorretos');throw res.error;}
-    if(!res.data.session){toast.success('Check your email to confirm your account.');return;}
-    const token=new URLSearchParams(location.search).get('invite');
-    if(token){const result=await authTimeout(supabase.rpc('accept_staff_invite' as never,{invite_token:token} as never));if(result.error)throw result.error;}
-    const {data:profile,error:profileError}=await authTimeout(supabase.from('profiles').select('company_id,is_active').eq('id',res.data.session.user.id).maybeSingle());
-    if(profileError)throw profileError;
-    if(!profile?.company_id||!profile.is_active)throw Error('Sem empresa vinculada, fale com seu patrão');
-    const destination=await authTimeout(roleDestination());
-    if(destination==='/auth')throw Error('Your account does not have an active workspace profile.');
-    if((role==='owner'&&['/cleaner','/suspended'].includes(destination))||(role==='cleaner'&&['/admin','/planos'].includes(destination))){throw Error('This account belongs to the other workspace. Please use the correct sign-in page.');}
-    const query=new URLSearchParams(location.search);
-    const plan=query.get('plan');
-    const next=query.get('next');
-    if(role==='owner'&&['/admin','/planos'].includes(destination)){
-      if(plan&&['starter','growth','scale'].includes(plan)){window.location.replace('/planos?plan='+plan+'&interval='+(query.get('interval')==='year'?'year':'month'));return;}
-      if(next&&/^\/planos(?:\?|$)/.test(next)&&!next.includes('\\')){window.location.replace(next);return;}
-    }
-    window.location.replace(destination);
-    }catch(e){setError(e instanceof Error?e.message:(e as {message?:string}).message||'Unable to sign in. Please try again.');}finally{setBusy(false)}
+      const query=new URLSearchParams(location.search);
+      const token=query.get('invite');
+      const options=role==='owner'&&!token ? ownerSignupParameters(query) : {emailRedirectTo:window.location.href};
+      const res=await authTimeout(mode==='signin'
+        ? supabase.auth.signInWithPassword({email:email.trim(),password})
+        : supabase.auth.signUp({email:email.trim(),password,options}));
+      if(res.error){if(res.error.code==='invalid_credentials')throw Error('Email ou senha incorretos');throw res.error;}
+      if(!res.data.session){toast.success('Check your email to confirm your account.');return;}
+      if(!await finishSignIn(role))throw Error('Your account does not have an active workspace profile.');
+    }catch(e){setError(authError(e));}finally{setBusy(false)}
   }
 
   return (
@@ -64,6 +57,7 @@ export function AuthPage({role='owner'}:{role?:'owner'|'cleaner'}) {
         <button disabled={busy} className="h-10 w-full rounded-xl bg-primary text-[13.5px] font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
           {busy ? "Please wait…" : mode === "signin" ? "Sign in" : "Create account"}
         </button>
+        {mode==='signin' && <PasswordRecoveryLink role={role} />}
         {(role==='owner'||(typeof window!=='undefined'&&new URLSearchParams(window.location.search).has('invite')))&&<button type="button" onClick={() => setMode(mode === "signin" ? "signup" : "signin")} className="w-full text-[12.5px] text-muted-foreground hover:text-foreground">
           {mode === "signin" ? "No account yet? Create one" : "Already have an account? Sign in"}
         </button>}
@@ -71,4 +65,37 @@ export function AuthPage({role='owner'}:{role?:'owner'|'cleaner'}) {
       </form>
     </div>
   );
+}
+
+
+function authError(error: unknown) {
+  return error instanceof Error ? error.message : (error as { message?: string } | null)?.message || 'Unable to sign in. Please try again.';
+}
+
+async function finishSignIn(role:'owner'|'cleaner', active=()=>true) {
+  const {data:{session},error}=await authTimeout(supabase.auth.getSession());
+  if(error)throw error;
+  if(!session||!active())return false;
+  const query=new URLSearchParams(location.search);
+  const token=query.get('invite');
+  if(token){
+    const profile=await authTimeout(supabase.from('profiles').select('id').eq('id',session.user.id).maybeSingle());
+    if(profile.error)throw profile.error;
+    if(!profile.data){
+      const result=await authTimeout(supabase.rpc('accept_staff_invite' as never,{invite_token:token} as never));
+      if(result.error)throw result.error;
+    }
+  }
+  const destination=await authTimeout(roleDestination());
+  if(!active())return false;
+  if(destination==='/auth'){
+    if(query.get('confirmed')==='1')throw Error('Your email was confirmed but the workspace is not available. Please try signing in again.');
+    return false;
+  }
+  if(role==='owner'&&!token&&(destination==='/admin'||destination==='/planos')){
+    window.location.replace(ownerLanding(destination,query,session.user.user_metadata?.[ownerSignupKey]));
+  }else{
+    window.location.replace(destination);
+  }
+  return true;
 }
