@@ -1,3 +1,4 @@
+import { useRef, useState } from "react";
 import { GlobalSearch } from "./GlobalSearch";
 import { CircleHelp, LogOut, Menu } from "lucide-react";
 import { toast } from "sonner";
@@ -5,9 +6,13 @@ import { supabase } from "@/integrations/supabase/client";
 import { NotificationBell } from "./NotificationBell";
 import { useAdminAccount } from "./AdminSession";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { copySupportEmail, SUPPORT_EMAIL, SUPPORT_MAILTO } from "@/lib/support-contact";
 
 export function AdminTopbar({ onToggleMenu }: { onToggleMenu: () => void }) {
   const account = useAdminAccount();
+  const supportLink = useRef<HTMLAnchorElement>(null);
+  const [copyStatus, setCopyStatus] = useState("");
 
   const signOut = async () => {
     const { error } = await supabase.auth.signOut();
@@ -33,14 +38,34 @@ export function AdminTopbar({ onToggleMenu }: { onToggleMenu: () => void }) {
       <GlobalSearch />
 
       <div className="flex shrink-0 items-center gap-1">
-        <a
-          href="mailto:support@cleanmaapp.com?subject=Suporte%20CleanMa%20UK"
-          title="Email support — support@cleanmaapp.com"
-          aria-label="Email CleanMa support"
-          className="grid h-9 w-9 place-items-center rounded-xl text-muted-foreground transition hover:bg-secondary"
-        >
-          <CircleHelp className="h-5 w-5" />
-        </a>
+        <Popover onOpenChange={() => setCopyStatus("")}>
+          <PopoverTrigger
+            type="button"
+            title="Help & support"
+            aria-label="Help & support"
+            className="grid h-9 w-9 place-items-center rounded-xl text-muted-foreground transition hover:bg-secondary"
+          >
+            <CircleHelp className="h-5 w-5" />
+          </PopoverTrigger>
+          <PopoverContent align="end" className="max-w-[calc(100vw-2rem)]">
+            <p className="text-sm font-medium">Contact support</p>
+            <a ref={supportLink} href={SUPPORT_MAILTO} className="mt-2 block select-text text-sm text-primary underline">
+              {SUPPORT_EMAIL}
+            </a>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-3"
+              onClick={async () => setCopyStatus(
+                await copySupportEmail(supportLink.current) ? "Email copied." : "Copy the email address manually."
+              )}
+            >
+              Copy email
+            </Button>
+            <p role="status" className="mt-1 text-xs text-muted-foreground">{copyStatus}</p>
+          </PopoverContent>
+        </Popover>
 
         <NotificationBell />
         <div className="flex items-center gap-2">

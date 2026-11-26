@@ -2,6 +2,7 @@ import brandLogo from '../../public/cleanma-logo.png';
 import {dayKey} from './supabase.js';
 import {useCleaner} from './use-cleaner.js';
 import {createPanels} from './panels.js';
+import {copySupportEmail, SUPPORT_EMAIL, SUPPORT_MAILTO} from '../../src/lib/support-contact.ts';
 var nd = Object.create;
 var {
   getPrototypeOf: td,
@@ -7201,6 +7202,39 @@ var Jr = [],
     code: "EN"
   }];
 const panels = createPanels(A);
+
+function CleanerSupport() {
+  const supportLink = A.useRef(null);
+  const [copyStatus, setCopyStatus] = A.useState("");
+  return p("details", {
+    onToggle: event => { if (!event.currentTarget.open) setCopyStatus(""); },
+    children: [f("summary", {
+      title: "Help & support",
+      "aria-label": "Help & support",
+      className: "w-7 h-7 grid place-items-center rounded-full bg-white border border-slate-200",
+      style: {cursor: "pointer", listStyle: "none"},
+      children: f(rn, {className: "w-4 h-4 text-slate-600"})
+    }), p("div", {
+      className: "p-3 bg-white border border-slate-200 rounded-xl shadow-lg",
+      style: {position: "absolute", top: "100%", right: "1rem", maxWidth: "calc(100% - 2rem)", fontSize: "0.875rem"},
+      children: [f("p", {className: "font-semibold", children: "Contact support"}), f("a", {
+        ref: supportLink,
+        href: SUPPORT_MAILTO,
+        className: "block mt-1 text-blue-600",
+        style: {userSelect: "text", WebkitUserSelect: "text", textDecoration: "underline", overflowWrap: "anywhere"},
+        children: SUPPORT_EMAIL
+      }), f("button", {
+        type: "button",
+        className: "mt-2 px-3 py-1 rounded-full border border-slate-200",
+        onClick: async () => setCopyStatus(
+          await copySupportEmail(supportLink.current) ? "Email copied." : "Copy the email address manually."
+        ),
+        children: "Copy email"
+      }), f("p", {role: "status", className: "mt-1 text-xs text-slate-600", children: copyStatus})]
+    })]
+  });
+}
+
 function xo() {
   const live = useCleaner(A);
   const Jr = live.jobs;
@@ -7287,32 +7321,7 @@ function xo() {
               className: "font-extrabold tracking-tight text-[15px]",
               children: "CleanMa"
             })]
-          }), e && f(panels.Notifications, {live}), f("a", {
-            href: "mailto:support@cleanflow.uk",
-            "aria-label": "Help & Support",
-            className: "w-7 h-7 grid place-items-center rounded-full bg-white border border-slate-200",
-            children: f(rn, {className: "w-4 h-4 text-slate-600"})
-            })]
-        }), f("div", {
-          className: "flex-1 overflow-y-auto bg-[#F8FAFC] relative",
-          children: !e ? f(panels.Login, {
-            live
-          }) : p(panels.ErrorBoundary, {
-            key: o + (u || ""),
-            children: [o === "today" && !u && p("div", {
-              className: "p-4 pb-24",
-              children: [p("div", {
-                className: "flex items-start justify-between gap-3",
-                children: [p("div", {
-                  children: [f("h2", {
-                    className: "text-[22px] font-extrabold tracking-tight leading-tight",
-                    children: live.greeting + ", " + live.name.split(" ")[0]
-                  }), p("div", {
-                    className: "mt-1 flex items-center gap-2 text-[13px] text-slate-600",
-                    children: [f(Lr, {
-                      className: "w-4 h-4"
-                    }), " " + live.today + " · " + Vt.length + " visits"]
-                  })]
+          }), e && f(panels.Notifications, {live}), f(CleanerSupport, {})]
                 }), f("div", {
                   className: "w-11 h-11 rounded-full bg-slate-900 text-white grid place-items-center font-bold text-[13px]",
                   children: live.name.split(/\s+/).map(x => x[0]).slice(0, 2).join("")
