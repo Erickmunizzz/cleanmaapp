@@ -5,15 +5,18 @@ import { createFileRoute, Outlet, useRouterState } from "@tanstack/react-router"
 import { AdminSidebar } from "@/components/admin/AdminSidebar";
 import { AdminTopbar } from "@/components/admin/AdminTopbar";
 
+import { InstallGuide, pwaHead } from "@/lib/pwa";
+
 export const Route = createFileRoute("/admin")({
+  head: () => pwaHead("owner"),
   component: AdminLayout,
 });
 
 function AdminLayout() {
   const [menuOpen, setMenuOpen] = useState(false);
   const login=useRouterState({select:s=>s.location.pathname})==='/admin/login';
-  if(login)return <Outlet/>;
-  return (
+  if(login)return <><Outlet/><InstallGuide portal="owner" /></>;
+  return (<>
     <RoleGate role="owner"><div className="flex min-h-screen overflow-x-clip bg-background text-foreground">
       <AdminSidebar open={menuOpen} onNavigate={() => setMenuOpen(false)} />
       {menuOpen && (
@@ -30,5 +33,6 @@ function AdminLayout() {
         </main>
       </div>
     </div></RoleGate>
-  );
+    <InstallGuide portal="owner" />
+  </>);
 }

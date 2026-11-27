@@ -59,9 +59,20 @@ export default async function handler(req, res) {
       return json(res, 409, {error: 'The linked login uses different details. Contact support before re-inviting this employee.'});
     }
 
-    const message = 'You have been invited to the CleanMa Cleaner app.\n\nOpen or install the app: ' +
-      origin + '/cleaner.html\nSign-in: ' + email + '\nTemporary password: ' + password +
-      '\n\nChoose a new password when you first sign in.';
+    const message = [
+      'You have been invited to the CleanMa Cleaner app.',
+      '',
+      'Open CleanMa Cleaner: ' + origin + '/cleaner.html',
+      'Sign-in: ' + email,
+      'Temporary password: ' + password,
+      '',
+      'Choose a new password when you first sign in.',
+      '',
+      'Add CleanMa to your phone’s home screen (optional):',
+      'iPhone: Open the link in Safari, tap Share → Add to Home Screen → Add. If offered, turn on Open as Web App.',
+      'Android: Open the link in Chrome, tap ⋮ → Add to Home screen or Install and create shortcut, then follow the prompts.',
+      'You can also keep using CleanMa in your browser. No app store download is needed.',
+    ].join('\n');
     if (!process.env.RESEND_API_KEY || !process.env.CLEANMA_INVITE_FROM) {
       return json(res, 200, {status: 'email_unconfigured'});
     }

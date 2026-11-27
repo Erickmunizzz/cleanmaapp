@@ -87,8 +87,7 @@ export function AdminSidebar({ open, onNavigate }: { open: boolean; onNavigate: 
             Up to 20 active staff and 1,000 jobs per month.
           </div>
           <Link
-            to="/admin/$section"
-            params={{ section: "settings" }}
+            to="/planos"
             onClick={onNavigate}
             className="mt-3 block w-full rounded-lg bg-card py-2 text-center text-[12px] font-semibold text-foreground transition hover:bg-secondary"
           >
