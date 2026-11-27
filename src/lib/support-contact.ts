@@ -1,4 +1,4 @@
-export const SUPPORT_EMAIL = "contact@cleanmaapp.com";
+export const SUPPORT_EMAIL = "support@cleanmaapp.com";
 export const SUPPORT_MAILTO = `mailto:${SUPPORT_EMAIL}`;
 
 export async function copySupportEmail(link: HTMLAnchorElement | null) {
