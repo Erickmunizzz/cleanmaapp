@@ -48,6 +48,46 @@ export async function checkout(ctx,input) {
  if(!session?.url)throw new Error('PROVIDER_REQUEST_FAILED');
  return {url:session.url};
 }
+// Checkout sessions are created on the platform account. The Stripe API does not
+// support filtering by client_reference_id, so limit the search to the open
+// claim window, then match the metadata stamped by checkout() server-side.
+export async function resumeCheckout(ctx) {
+ await platform();
+ const binding=await db('binding',{company:ctx.company});
+ if(binding&&['active','past_due'].includes(binding.status))throw new Error('CHECKOUT_NOT_OPEN');
+ const filters=new URLSearchParams({
+  status:'open',limit:'100','created[gte]':String(Math.floor(Date.now()/1000)-25*3600),
+ });
+ // Bound pagination to avoid an unbounded account-wide scan on this request.
+ for(let page=0;page<3;page++){
+  const response=await stripe('checkout/sessions?'+filters);
+  if(!Array.isArray(response?.data))throw new Error('PROVIDER_REQUEST_FAILED');
+  for(const session of response.data){
+   const metadata=session?.metadata;
+   const claim=metadata?.claim_id;
+   if(session?.object!=='checkout.session'||session.status!=='open'||session.mode!=='subscription'||
+      session.payment_status!=='unpaid'||!Number.isSafeInteger(session.expires_at)||
+      session.expires_at<=Math.floor(Date.now()/1000)||
+      metadata?.company_id!==ctx.company||metadata?.user_id!==ctx.user.id||
+      !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(claim||'')||
+      session.client_reference_id!==claim||!Object.hasOwn(catalog,metadata?.plan_tier))continue;
+   let url;
+   try{url=new URL(session.url);}catch{continue;}
+   if(url.origin==='https://checkout.stripe.com'&&!url.username&&!url.password&&
+      /^cs_[a-zA-Z0-9_]+$/.test(session.id||'')&&
+      (url.pathname==='/c/pay/'+session.id||url.pathname==='/g/pay/'+session.id)){
+    return {url:url.href};
+   }
+  }
+  if(!response.has_more)throw new Error('CHECKOUT_NOT_OPEN');
+  const cursor=response.data.at(-1)?.id;
+  if(typeof cursor!=='string'||!/^cs_[a-zA-Z0-9_]+$/.test(cursor)||filters.get('starting_after')===cursor){
+   throw new Error('PROVIDER_REQUEST_FAILED');
+  }
+  filters.set('starting_after',cursor);
+ }
+ throw new Error('PROVIDER_REQUEST_FAILED');
+}
 export async function quickLink(ctx,input){await paid(ctx.company);if(input.gateway!=='stripe')throw new Error('GATEWAY_NOT_CONFIGURED');if(!Number.isInteger(input.amount)||input.amount<100||input.amount>100000000||typeof input.description!=='string'||!input.description.trim()||input.description.length>200||!/^[0-9a-f-]{36}$/i.test(input.request_id||''))throw new Error('INVALID_REQUEST');await platform();const connection=await expressStore('get',ctx);if(!connection?.stripe_account_id)throw new Error('CONNECT_STRIPE_FIRST');const account=await stripe('accounts/'+connection.stripe_account_id);assertConnectedAccount(account,ctx);if(!account.charges_enabled||!account.details_submitted)throw new Error('STRIPE_ACCOUNT_NOT_READY');const fee=Math.round(input.amount/100);const session=await stripe('checkout/sessions',{mode:'payment',billing_address_collection:'required',currency:'gbp','payment_method_types[0]':'card','line_items[0][price_data][currency]':'gbp','line_items[0][price_data][unit_amount]':String(input.amount),'line_items[0][price_data][product_data][name]':input.description.trim(),'line_items[0][quantity]':'1','payment_intent_data[application_fee_amount]':String(fee),'metadata[company_id]':ctx.company,'metadata[user_id]':ctx.user.id,success_url:origin+'/client-payment-result?status=returned',cancel_url:origin+'/client-payment-result?status=cancelled'},connection.stripe_account_id,'cleanma-charge-'+ctx.company+'-'+input.request_id);return {url:session.url,application_fee_amount:fee};}
 export const clientSubscriptionsEnabled = () => process.env.CLEANMA_CLIENT_SUBSCRIPTIONS_ENABLED === 'true';
 

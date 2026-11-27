@@ -373,3 +373,88 @@ test('expired Stripe Connect callback offers retry on the canonical admin settin
  assert.equal(headers.Location,'https://cleanmaapp.com/admin/settings?finance=integrations&integration=stripe_expired');
  assert.equal(headers['Cache-Control'],'no-store');
 });
+
+test('resume Checkout is read-only and finds only an open platform SaaS session for this requester', async t => {
+ const {resumeCheckout}=await import('../server/payments.mjs');
+ const claim='11111111-1111-4111-8111-111111111111';
+ const metadata={claim_id:claim,company_id:context.company,user_id:context.user.id,plan_tier:'scale'};
+ const expiration=Math.floor(Date.now()/1000)+3600;
+ const expected='https://checkout.stripe.com/g/pay/cs_test_resume#original';
+ const own={id:'cs_test_resume',object:'checkout.session',mode:'subscription',status:'open',payment_status:'unpaid',
+  client_reference_id:claim,expires_at:expiration,url:expected,metadata};
+ let pages=0;
+ t.mock.method(global,'fetch',async (url,init)=>{
+  if(url.endsWith('/account'))return Response.json({id:'acct_1T56IvFn9iiryRd5'});
+  if(url.endsWith('/cleanma_payment_store')){
+   assert.deepEqual(JSON.parse(init.body),{action:'binding',payload:{company:context.company}});
+   return Response.json(null);
+  }
+  const u=new URL(url);
+  assert.equal(u.hostname,'api.stripe.com');assert.equal(u.pathname,'/v1/checkout/sessions');
+  assert.equal(init.method,undefined);assert.equal(init.headers['Stripe-Account'],undefined);
+  assert.equal(init.headers['Idempotency-Key'],undefined);
+  assert.equal(u.searchParams.get('status'),'open');
+  assert.ok(Number(u.searchParams.get('created[gte]')) > 0);
+  pages++;
+  if(pages===1){
+   assert.equal(u.searchParams.get('starting_after'),null);
+   return Response.json({has_more:true,data:[
+    {...own,id:'cs_wrong_tenant',metadata:{...metadata,company_id:'some-other-tenant'}},
+    {...own,id:'cs_wrong_user',metadata:{...metadata,user_id:'another-workspace-owner'}},
+    {...own,id:'cs_wrong_claim',client_reference_id:'different-claim'},
+    {...own,id:'cs_expired',expires_at:expiration-7200},
+    {...own,id:'cs_completed',status:'complete'},
+    {...own,id:'cs_wrong_mode',mode:'payment'},
+    {...own,id:'cs_invalid_url',url:'https://checkout.stripe.com.invalid/c/pay/cs_x'},
+    {...own,id:'cs_test_cursor',url:null},
+   ]});
+  }
+  assert.equal(u.searchParams.get('starting_after'),'cs_test_cursor');
+  return Response.json({has_more:false,data:[own]});
+ });
+ assert.deepEqual(await resumeCheckout(context),{url:expected});
+ assert.equal(pages,2);
+});
+
+test('resume Checkout never creates a session when none is open or when the owner already has Billing', async t => {
+ const {resumeCheckout}=await import('../server/payments.mjs');
+ let binding=null;
+ let searches=0;
+ t.mock.method(global,'fetch',async (url,init)=>{
+  if(url.endsWith('/account'))return Response.json({id:'acct_1T56IvFn9iiryRd5'});
+  if(url.endsWith('/cleanma_payment_store'))return Response.json(binding);
+  assert.match(url,/\/checkout\/sessions\?/);
+  assert.equal(init.method,undefined);
+  searches++;
+  return Response.json({has_more:false,data:[]});
+ });
+ await assert.rejects(()=>resumeCheckout(context),/CHECKOUT_NOT_OPEN/);
+ binding={status:'past_due'};
+ await assert.rejects(()=>resumeCheckout(context),/CHECKOUT_NOT_OPEN/);
+ assert.equal(searches,1);
+});
+
+test('resume Checkout route keeps the owner and canonical origin checks and does not trust caller selectors',async t=>{
+ const {default:handler}=await import('../api/payments.js');
+ const previous=process.env.SUPABASE_ANON_KEY;
+ process.env.SUPABASE_ANON_KEY='test-anon';
+ t.after(()=>{if(previous===undefined)delete process.env.SUPABASE_ANON_KEY;else process.env.SUPABASE_ANON_KEY=previous;});
+ let selected;
+ t.mock.method(global,'fetch',async (url,init)=>{
+  if(url.endsWith('/auth/v1/user'))return Response.json(context.user);
+  if(url.includes('/rest/v1/profiles?'))return Response.json([{id:context.user.id,company_id:context.company,role:'owner',is_active:true}]);
+  if(url.endsWith('/account'))return Response.json({id:'acct_1T56IvFn9iiryRd5'});
+  if(url.endsWith('/cleanma_payment_store')){selected=JSON.parse(init.body).payload.company;return Response.json(null);}
+  assert.match(url,/\/checkout\/sessions\?/);
+  return Response.json({has_more:false,data:[]});
+ });
+ async function send(origin,authorization){
+  const res={setHeader(){},end(value){this.result=JSON.parse(value);}};
+  await handler({method:'POST',headers:{origin,authorization},body:{action:'resume-checkout',company_id:'injected',user_id:'injected'}},res);
+  return res;
+ }
+ assert.equal((await send('https://untrusted.invalid','Bearer token')).statusCode,403);
+ assert.deepEqual((await send('https://cleanmaapp.com',undefined)).result,{error:'UNAUTHORISED'});
+ assert.deepEqual((await send('https://cleanmaapp.com','Bearer token')).result,{error:'CHECKOUT_NOT_OPEN'});
+ assert.equal(selected,context.company);
+});
