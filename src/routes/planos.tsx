@@ -65,8 +65,7 @@ const money = (n: number) => new Intl.NumberFormat("en-GB", { style: "currency",
 export function Plans() {
   const [preferredPlan, setPreferredPlan] = useState<Plan | null>(null);
   const [interval, setInterval] = useState<Interval>("month");
-  const [busy, setBusy] = useState<Plan | "resume" | null>(null);
-  const [pendingCheckout, setPendingCheckout] = useState(false);
+  const [busy, setBusy] = useState<Plan | null>(null);
   const [error, setError] = useState("");
   const [returned, setReturned] = useState(false);
   const [access, setAccess] = useState<Access | null>(null);
@@ -83,7 +82,6 @@ export function Plans() {
     setReturned(afterCheckout);
     setAccess(null);
     setError("");
-    setPendingCheckout(false);
     if (isPlan(urlPlan)) setPreferredPlan(urlPlan);
     if (isInterval(urlInterval)) setInterval(urlInterval);
 
@@ -143,31 +141,26 @@ export function Plans() {
     };
   }, [retry]);
 
-  async function openStripe(action: Plan | "resume") {
+  async function openStripe(action: Plan) {
     if (busy || access?.role !== "owner") return;
     setBusy(action);
     setError("");
     let navigating = false;
     try {
-      const response = await paymentApi(action === "resume"
-        ? { action: "resume-checkout" }
-        : { action: "checkout", plan: action, interval });
+      const response = await paymentApi({ action: "checkout", plan: action, interval });
       location.assign(response.url);
       navigating = true;
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : "Checkout unavailable.";
-      if (message === "CHECKOUT_PENDING") {
-        setPendingCheckout(true);
-      } else if (message === "CHECKOUT_NOT_OPEN") {
-        setPendingCheckout(false);
-        setError("There is no open Checkout link to reopen. If you just paid, check your access again before starting another payment.");
-      } else {
-        setError(message === "SUBSCRIPTION_EXISTS"
-          ? "A subscription already exists. Refresh this page and try again to manage it in Stripe."
-          : ["CONFIGURATION_REQUIRED", "INVALID_PRICE", "WRONG_PLATFORM_ACCOUNT"].includes(message)
-            ? "Stripe billing is not configured correctly. Please contact CleanMa support."
-            : message);
-      }
+      setError(message === "CHECKOUT_PROCESSING"
+        ? "Your payment is being confirmed. Check your access before starting another payment."
+        : ["CHECKOUT_RETRY", "CHECKOUT_PENDING"].includes(message)
+          ? "Checkout is updating. Please choose your plan again."
+          : message === "SUBSCRIPTION_EXISTS"
+            ? "A subscription already exists. Refresh this page and try again to manage it in Stripe."
+            : ["CONFIGURATION_REQUIRED", "INVALID_PRICE", "WRONG_PLATFORM_ACCOUNT"].includes(message)
+              ? "Stripe billing is not configured correctly. Please contact CleanMa support."
+              : message);
     } finally {
       if (!navigating) setBusy(null);
     }
@@ -200,17 +193,6 @@ export function Plans() {
         {returned && <p role="status" className="mb-5 rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-700">{paid
           ? "Your workspace has active access. You can return to your dashboard."
           : "Waiting for payment confirmation from Stripe. A Checkout return does not confirm payment."}</p>}
-        {pendingCheckout && (
-          <aside aria-label="Open Stripe Checkout" className="mb-6 flex flex-col gap-3 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-blue-950 sm:flex-row sm:items-center sm:justify-between">
-            <p role="status" className="text-sm">You already have a Stripe Checkout link. Reopen it to continue with your previous plan and billing period.</p>
-            <button type="button" disabled={!!busy || !access}
-              onClick={() => void openStripe("resume")}
-              className={`${buttonBase} border-blue-700 bg-blue-700 text-white hover:bg-blue-800 sm:w-auto sm:shrink-0`}>
-              {busy === "resume" ? "Opening Stripe…" : "Reopen previous checkout"}
-            </button>
-          </aside>
-        )}
-
         <div className="grid gap-x-5 gap-y-8 md:grid-cols-3">
           {planOrder.map(key => {
             const { name, description, features } = plans[key];

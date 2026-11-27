@@ -3,7 +3,7 @@ export const origin='https://cleanmaapp.com';
 export const catalog={starter:{month:['price_1UbwFxFn9iiryRd5VAqtdCnN',8999],year:['price_1UbwGYFn9iiryRd5fnYR3I2t',92870]},growth:{month:['price_1UbwGHFn9iiryRd5nOnv4epK',17999],year:['price_1UbwGeFn9iiryRd5uB6PCo8F',185750]},scale:{month:['price_1UbwGNFn9iiryRd530SxIUHd',29999],year:['price_1UbwGmFn9iiryRd5VlPYJsdq',309590]}};
 export function env(k){const v=process.env[k];if(!v)throw new Error('CONFIGURATION_REQUIRED');return v;}
 export async function request(url,init={},knownErrors=[]){const r=await fetch(url,{...init,redirect:'error',signal:AbortSignal.timeout(15000)});const body=await r.json();if(!r.ok)throw new Error(knownErrors.includes(body?.message)?body.message:'PROVIDER_REQUEST_FAILED');return body;}
-export function db(action,payload={}){return request(env('SUPABASE_URL')+'/rest/v1/rpc/cleanma_payment_store',{method:'POST',headers:{apikey:env('SUPABASE_SERVICE_ROLE_KEY'),Authorization:'Bearer '+env('SUPABASE_SERVICE_ROLE_KEY'),'Content-Type':'application/json'},body:JSON.stringify({action,payload})},['CHECKOUT_PENDING','SUBSCRIPTION_EXISTS','SUBSCRIPTION_CONFLICT','UNKNOWN_CHECKOUT','INVALID_SUBSCRIPTION_SNAPSHOT']);}
+export function db(action,payload={}){return request(env('SUPABASE_URL')+'/rest/v1/rpc/cleanma_payment_store',{method:'POST',headers:{apikey:env('SUPABASE_SERVICE_ROLE_KEY'),Authorization:'Bearer '+env('SUPABASE_SERVICE_ROLE_KEY'),'Content-Type':'application/json'},body:JSON.stringify({action,payload})},['CHECKOUT_PENDING','CHECKOUT_RETRY','CHECKOUT_PROCESSING','SUBSCRIPTION_EXISTS','SUBSCRIPTION_CONFLICT','UNKNOWN_CHECKOUT','INVALID_SUBSCRIPTION_SNAPSHOT']);}
 export async function owner(req){const token=req.headers.authorization;if(!/^Bearer [\w.-]+$/.test(token||''))throw new Error('UNAUTHORISED');const headers={apikey:env('SUPABASE_ANON_KEY'),Authorization:token};const user=await request(env('SUPABASE_URL')+'/auth/v1/user',{headers});const rows=await request(env('SUPABASE_URL')+'/rest/v1/profiles?select=id,company_id,role,is_active&id=eq.'+encodeURIComponent(user.id),{headers});const profile=rows[0];if(!profile||profile.role!=='owner'||!profile.is_active||!profile.company_id)throw new Error('OWNER_REQUIRED');return {user,company:profile.company_id};}
 export async function stripe(path,data,account,idempotency){const headers={Authorization:'Bearer '+env('STRIPE_SECRET_KEY'),'Stripe-Version':'2026-08-26.dahlia'};if(account)headers['Stripe-Account']=account;if(idempotency)headers['Idempotency-Key']=idempotency;let init={headers};if(data){headers['Content-Type']='application/x-www-form-urlencoded';init={method:'POST',headers,body:new URLSearchParams(data)};}return request('https://api.stripe.com/v1/'+path,init);}
 export async function platform(){const a=await stripe('account');if(a.id!==(process.env.STRIPE_PLATFORM_ACCOUNT_ID||'acct_1T56IvFn9iiryRd5'))throw new Error('WRONG_PLATFORM_ACCOUNT');return a;}
@@ -36,57 +36,73 @@ export async function checkout(ctx,input) {
  const p=await stripe('prices/'+price[0]);
  if(!p.active||p.currency!=='gbp'||p.unit_amount!==price[1]||p.recurring?.interval!==input.interval||
     p.recurring?.interval_count!==1)throw new Error('INVALID_PRICE');
- const claim=await db('claim',{company:ctx.company,user:ctx.user.id,plan:input.plan,interval:input.interval,price:price[0]});
- const metadata={user_id:ctx.user.id,company_id:ctx.company,email:ctx.user.email,plan_tier:input.plan,claim_id:claim.id};
- const data={
-  mode:'subscription',currency:'gbp','line_items[0][price]':price[0],'line_items[0][quantity]':'1',
-  customer_email:ctx.user.email,client_reference_id:claim.id,
-  success_url:origin+'/planos?checkout=returned',cancel_url:origin+'/planos',
- };
- for(const [k,v]of Object.entries(metadata)){data[`metadata[${k}]`]=v;data[`subscription_data[metadata][${k}]`]=v;}
- const session=await stripe('checkout/sessions',data,undefined,'cleanma-sub-'+claim.id);
+ if(existing?.status==='incomplete')throw new Error('CHECKOUT_PROCESSING');
+ const previous=await db('latest_checkout_claim',{company:ctx.company,user:ctx.user.id});
+ if(previous&&!(existing?.claim_id===previous.id&&['cancelled','inactive'].includes(existing.status))){
+  await closePreviousCheckout(ctx,previous);
+ }
+ const claim=await db('claim',{company:ctx.company,user:ctx.user.id,plan:input.plan,interval:input.interval,price:price[0],replace_claim_id:previous?.id??null});
+ const session=await createSaasCheckout(ctx,claim.id,input.plan,price[0]);
  if(!session?.url)throw new Error('PROVIDER_REQUEST_FAILED');
  return {url:session.url};
 }
-// Checkout sessions are created on the platform account. The Stripe API does not
-// support filtering by client_reference_id, so limit the search to the open
-// claim window, then match the metadata stamped by checkout() server-side.
-export async function resumeCheckout(ctx) {
- await platform();
- const binding=await db('binding',{company:ctx.company});
- if(binding&&['active','past_due'].includes(binding.status))throw new Error('CHECKOUT_NOT_OPEN');
- const filters=new URLSearchParams({
-  status:'open',limit:'100','created[gte]':String(Math.floor(Date.now()/1000)-25*3600),
- });
- // Bound pagination to avoid an unbounded account-wide scan on this request.
+
+function createSaasCheckout(ctx,claimId,plan,price) {
+ const metadata={user_id:ctx.user.id,company_id:ctx.company,email:ctx.user.email,plan_tier:plan,claim_id:claimId};
+ const data={
+  mode:'subscription',currency:'gbp','line_items[0][price]':price,'line_items[0][quantity]':'1',
+  customer_email:ctx.user.email,client_reference_id:claimId,
+  success_url:origin+'/planos?checkout=returned',cancel_url:origin+'/planos',
+ };
+ for(const [k,v]of Object.entries(metadata)){data[`metadata[${k}]`]=v;data[`subscription_data[metadata][${k}]`]=v;}
+ return stripe('checkout/sessions',data,undefined,'cleanma-sub-'+claimId);
+}
+
+async function closePreviousCheckout(ctx,claim) {
+ const timestamp=Date.parse(claim.created_at);
+ if(!Number.isFinite(timestamp))throw new Error('PROVIDER_REQUEST_FAILED');
+ const filters=new URLSearchParams({limit:'100','created[gte]':String(Math.floor(timestamp/1000)-5),'created[lte]':String(Math.ceil(timestamp/1000)+25*3600)});
+ const sessions=[];
+ let complete=false;
  for(let page=0;page<3;page++){
   const response=await stripe('checkout/sessions?'+filters);
   if(!Array.isArray(response?.data))throw new Error('PROVIDER_REQUEST_FAILED');
   for(const session of response.data){
-   const metadata=session?.metadata;
-   const claim=metadata?.claim_id;
-   if(session?.object!=='checkout.session'||session.status!=='open'||session.mode!=='subscription'||
-      session.payment_status!=='unpaid'||!Number.isSafeInteger(session.expires_at)||
-      session.expires_at<=Math.floor(Date.now()/1000)||
-      metadata?.company_id!==ctx.company||metadata?.user_id!==ctx.user.id||
-      !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(claim||'')||
-      session.client_reference_id!==claim||!Object.hasOwn(catalog,metadata?.plan_tier))continue;
-   let url;
-   try{url=new URL(session.url);}catch{continue;}
-   if(url.origin==='https://checkout.stripe.com'&&!url.username&&!url.password&&
-      /^cs_[a-zA-Z0-9_]+$/.test(session.id||'')&&
-      (url.pathname==='/c/pay/'+session.id||url.pathname==='/g/pay/'+session.id)){
-    return {url:url.href};
-   }
+   if(session.client_reference_id!==claim.id)continue;
+   if(!/^cs_[a-zA-Z0-9_]+$/.test(session.id||'')||session.mode!=='subscription'||
+     session.metadata?.claim_id!==claim.id||session.metadata?.company_id!==ctx.company||
+     session.metadata?.user_id!==claim.user_id||session.metadata?.plan_tier!==claim.plan)throw new Error('PROVIDER_REQUEST_FAILED');
+   sessions.push(session);
   }
-  if(!response.has_more)throw new Error('CHECKOUT_NOT_OPEN');
+  if(!response.has_more){complete=true;break;}
   const cursor=response.data.at(-1)?.id;
-  if(typeof cursor!=='string'||!/^cs_[a-zA-Z0-9_]+$/.test(cursor)||filters.get('starting_after')===cursor){
-   throw new Error('PROVIDER_REQUEST_FAILED');
-  }
+  if(!/^cs_[a-zA-Z0-9_]+$/.test(cursor||'')||filters.get('starting_after')===cursor)throw new Error('PROVIDER_REQUEST_FAILED');
   filters.set('starting_after',cursor);
  }
- throw new Error('PROVIDER_REQUEST_FAILED');
+ if(!complete)throw new Error('PROVIDER_REQUEST_FAILED');
+
+ // If a concurrent create has not appeared yet, resolve the same idempotency
+ // key before replacing its claim. No old link is returned to the browser.
+ if(!sessions.length&&Date.now()-timestamp<23*3600000){
+  if(claim.user_id!==ctx.user.id)throw new Error('CHECKOUT_RETRY');
+  const created=await createSaasCheckout(ctx,claim.id,claim.plan,claim.price);
+  if(!/^cs_[a-zA-Z0-9_]+$/.test(created?.id||''))throw new Error('PROVIDER_REQUEST_FAILED');
+  sessions.push(await stripe('checkout/sessions/'+created.id));
+ }
+
+ // Stripe won the race if payment completed. Never open another payable link
+ // while that payment or its webhook may still be settling.
+ for(const session of sessions){
+  if(!['open','expired'].includes(session?.status)||session.payment_status==='paid')throw new Error('CHECKOUT_PROCESSING');
+ }
+ for(const session of sessions){
+  if(session.status==='expired')continue;
+  const path='checkout/sessions/'+session.id;
+  let expired;
+  try{expired=await stripe(path+'/expire',{});}catch{expired=await stripe(path);}
+  if(expired?.status==='complete'||expired?.payment_status==='paid')throw new Error('CHECKOUT_PROCESSING');
+  if(expired?.status!=='expired')throw new Error('CHECKOUT_RETRY');
+ }
 }
 export async function quickLink(ctx,input){await paid(ctx.company);if(input.gateway!=='stripe')throw new Error('GATEWAY_NOT_CONFIGURED');if(!Number.isInteger(input.amount)||input.amount<100||input.amount>100000000||typeof input.description!=='string'||!input.description.trim()||input.description.length>200||!/^[0-9a-f-]{36}$/i.test(input.request_id||''))throw new Error('INVALID_REQUEST');await platform();const connection=await expressStore('get',ctx);if(!connection?.stripe_account_id)throw new Error('CONNECT_STRIPE_FIRST');const account=await stripe('accounts/'+connection.stripe_account_id);assertConnectedAccount(account,ctx);if(!account.charges_enabled||!account.details_submitted)throw new Error('STRIPE_ACCOUNT_NOT_READY');const fee=Math.round(input.amount/100);const session=await stripe('checkout/sessions',{mode:'payment',billing_address_collection:'required',currency:'gbp','payment_method_types[0]':'card','line_items[0][price_data][currency]':'gbp','line_items[0][price_data][unit_amount]':String(input.amount),'line_items[0][price_data][product_data][name]':input.description.trim(),'line_items[0][quantity]':'1','payment_intent_data[application_fee_amount]':String(fee),'metadata[company_id]':ctx.company,'metadata[user_id]':ctx.user.id,success_url:origin+'/client-payment-result?status=returned',cancel_url:origin+'/client-payment-result?status=cancelled'},connection.stripe_account_id,'cleanma-charge-'+ctx.company+'-'+input.request_id);return {url:session.url,application_fee_amount:fee};}
 export const clientSubscriptionsEnabled = () => process.env.CLEANMA_CLIENT_SUBSCRIPTIONS_ENABLED === 'true';

@@ -37,32 +37,26 @@ test("lists all three cards, switches Annual pricing and opens Stripe for the ca
   expect(paymentApi).toHaveBeenCalledExactlyOnceWith({ action: "checkout", plan: "growth", interval: "year" });
 });
 
-test("offers to reopen the previous Checkout without resubmitting the newly chosen plan", async () => {
-  paymentApi.mockRejectedValueOnce(new Error("CHECKOUT_PENDING")).mockResolvedValueOnce({ url: "https://checkout.stripe.com/c/pay/previous" });
+test("a new selection opens its own checkout with no previous-checkout option", async () => {
+  paymentApi.mockResolvedValueOnce({ url: "https://checkout.stripe.com/c/pay/new" });
   render(<Plans />);
   const choose = screen.getByRole<HTMLButtonElement>("button", { name: "Choose Starter plan" });
   await waitFor(() => expect(choose.disabled).toBe(false));
   fireEvent.click(choose);
-  const resume = await screen.findByRole("button", { name: "Reopen previous checkout" });
-  expect(screen.queryByRole("alert")).toBeNull();
-  expect(assign).not.toHaveBeenCalled();
-  fireEvent.click(resume);
-  await waitFor(() => expect(assign).toHaveBeenCalledWith("https://checkout.stripe.com/c/pay/previous"));
-  expect(paymentApi).toHaveBeenNthCalledWith(1, { action: "checkout", plan: "starter", interval: "month" });
-  expect(paymentApi).toHaveBeenNthCalledWith(2, { action: "resume-checkout" });
+  await waitFor(() => expect(assign).toHaveBeenCalledWith("https://checkout.stripe.com/c/pay/new"));
+  expect(screen.queryByText(/previous checkout/i)).toBeNull();
+  expect(paymentApi).toHaveBeenCalledExactlyOnceWith({ action: "checkout", plan: "starter", interval: "month" });
 });
 
-test("does not auto-create a session if the previous link has expired", async () => {
-  paymentApi.mockRejectedValueOnce(new Error("CHECKOUT_PENDING")).mockRejectedValueOnce(new Error("CHECKOUT_NOT_OPEN"));
+test("reports in-progress payment without offering another link", async () => {
+  paymentApi.mockRejectedValueOnce(new Error("CHECKOUT_PROCESSING"));
   render(<Plans />);
   const choose = screen.getByRole<HTMLButtonElement>("button", { name: "Choose Scale plan" });
   await waitFor(() => expect(choose.disabled).toBe(false));
   fireEvent.click(choose);
-  fireEvent.click(await screen.findByRole("button", { name: "Reopen previous checkout" }));
-  expect((await screen.findByRole("alert")).textContent).toMatch(/no open Checkout link/);
-  expect(screen.queryByRole("button", { name: "Reopen previous checkout" })).toBeNull();
+  expect((await screen.findByRole("alert")).textContent).toMatch(/payment is being confirmed/);
+  expect(screen.queryByText(/previous checkout/i)).toBeNull();
   expect(assign).not.toHaveBeenCalled();
-  expect(paymentApi).toHaveBeenCalledTimes(2);
 });
 
 test("preserves the login redirect and selected-plan query for signed-out visitors", async () => {
